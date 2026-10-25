@@ -15,7 +15,7 @@ Standard library and ffmpeg only, because it runs inside the worker's `python:3.
 
 ## How it asks
 
-- **One question per check.** The question text is #6's, word for word. After it, `review.py` adds one line so a frame without arrows or hands isn't noted ("If no arrow is visible in the car's lane in a frame, answer yes for that frame."), plus the reply format: one `<n>: yes` or `<n>: no - <a few words>` line per frame. A reply that doesn't give exactly one answer per frame counts as unparsed.
+- **One question per check.** The question text is #6's, word for word. After it, `review.py` adds one line so a frame without arrows or hands isn't noted ("If no arrow is visible in the car's lane in a frame, answer yes for that frame."), plus the reply format: one `<n>: yes` or `<n>: no - <a few words>` line per frame, numbered 1 to N, ending with a short example reply. A reply numbered 0 to N-1, or with no numbers, is still read, in order. A reply that doesn't give exactly one answer per frame counts as unparsed. Each logged reply keeps the server's `finish_reason`; `length` with no text means thinking used up `max_tokens`.
 - **Three ways of sending frames** (`Settings.mode`):
   - `frames`: separate images, at most `max_images` per request.
   - `grid`: one image of 6 frames, 2 across by 3 down, left to right then down, cropped to the road.

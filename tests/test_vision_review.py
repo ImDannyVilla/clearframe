@@ -66,6 +66,30 @@ class ParseAnswersTest(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(review.parse_answers(text, 2))
 
+    def test_frames_numbered_from_0_are_read_as_1_onward(self):
+        # Qwen numbered a 16-frame video 0 to 15 in the first live run.
+        self.assertEqual(review.parse_answers("0: yes\n1: no - wrong way", 2), [("yes", ""), ("no", "wrong way")])
+
+    def test_answers_without_numbers_are_read_in_order(self):
+        # Qwen left the numbers off separate images in the first live run.
+        text = ". no - there is no car lane visible.\n. yes"
+        self.assertEqual(review.parse_answers(text, 2), [("no", "there is no car lane visible."), ("yes", "")])
+
+    def test_answers_without_numbers_must_cover_every_frame(self):
+        self.assertIsNone(review.parse_answers(". no - wrong way", 2))
+        self.assertIsNone(review.parse_answers("1: yes\n. no - wrong way", 2))
+
+
+class PromptTest(unittest.TestCase):
+    def test_the_prompt_shows_a_reply_in_the_format_asked(self):
+        _, ask = review._prompt(review.QUESTIONS["road_markings"], "video", 16, cropped=False)
+        self.assertIn("1 to 16", ask)
+        self.assertTrue(ask.endswith("1: yes\n2: no - the arrow points back toward the camera\n3: yes"))
+
+    def test_a_one_frame_example_has_no_flaw_line(self):
+        _, ask = review._prompt(review.QUESTIONS["extra_finger"], "frames", 1, cropped=False)
+        self.assertTrue(ask.endswith("For example:\n1: yes"))
+
 
 class FramesChosenTest(unittest.TestCase):
     def test_sparse_frames_cover_the_take(self):
@@ -204,6 +228,13 @@ class GarbageModel:
         return Reply("The arrows look fine to me.", 0.0)
 
 
+class CutOffModel:
+    name = "cut-off"
+
+    def ask(self, request, sampling):
+        return Reply("", 184.0, finish_reason="length")
+
+
 class DownModel:
     name = "down"
 
@@ -261,6 +292,12 @@ class ReviewTakeTest(unittest.TestCase):
         checked = result.checks["road_markings"]
         self.assertEqual(checked.state, "done")
         self.assertEqual(checked.unparsed, checked.requests * 3)
+
+    def test_a_reply_cut_off_at_max_tokens_is_logged_as_such(self):
+        result = self.review(CutOffModel(), review.Settings(strict=False))
+        replies = result.checks["road_markings"].replies
+        self.assertTrue(replies)
+        self.assertTrue(all(reply["finish_reason"] == "length" and not reply["parsed"] for reply in replies))
 
 
 if __name__ == "__main__":
