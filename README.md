@@ -22,6 +22,8 @@ Built at the Dell x NVIDIA AI Hackathon, San Francisco, October 25, 2026, by Dan
 | Measurer | ffmpeg and Python's standard library | The review worker container on `clearframe-net` |
 | Agent runtime | OpenClaw in an OpenShell sandbox, set up by NemoClaw (Restricted policy plus Slack) | The sandbox |
 
+Setup and run commands for the GB10 are in the [GB10 cheat sheet](docs/gb10-cheatsheet.md).
+
 ## Layout
 
 | Folder | What goes there | Owner |
@@ -34,6 +36,7 @@ Built at the Dell x NVIDIA AI Hackathon, San Francisco, October 25, 2026, by Dan
 | `rubric/` | Checks, flicker threshold, fix library, approvers, card wording | Danny |
 | `scripts/` | Smoke tests and the end-to-end script | Danny |
 | `tests/` | Laptop tests; they make their own clips with ffmpeg | Everyone |
+| `docs/` | The [GB10 cheat sheet](docs/gb10-cheatsheet.md) | Everyone |
 
 ## Rules
 
