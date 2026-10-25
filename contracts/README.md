@@ -14,7 +14,7 @@ These names appear unchanged in result files, SQLite, the rubric and the Slack c
 
 | Issue type | Found by | Card label | Planted in |
 | --- | --- | --- | --- |
-| `exposure_flicker` | Code, as a measured anomaly | exposure | 4-5 |
+| `exposure_flicker` | Code, as a measured anomaly | exposure | None: a background check on every take |
 | `road_markings` | The reviewer model, as a candidate note | road markings | 4-2 |
 | `extra_finger` | The reviewer model, as a candidate note (fallback only) | extra finger | 2-3 |
 
@@ -44,7 +44,7 @@ The worker writes one JSON file per take to `results/<take_id>.json`. With its e
 
 **Sample:** take 4-2's final revision is [`samples/result-4-2.json`](samples/result-4-2.json).
 
-**A measured anomaly.** Take 4-5's `measured` list holds one of these:
+**A measured anomaly.** One entry in a take's `measured` list looks like this. Take 4-5 is only the example: no flicker is added to any take.
 
 ```json
 {
@@ -227,7 +227,7 @@ Code builds every card from a fixed template, using only the fields below. No pr
 | Retake of | 4-2 | `takes.parent_take_id` (retake card only) |
 | Link | `http://127.0.0.1:8090/shot/4` | The evidence page |
 
-**Samples** (default wording; the final wording lives in `rubric/`)
+**Samples** (default wording; the final wording lives in `rubric/`). The takes and results shown are examples.
 
 ```text
 ClearFrame · Shot 4 · 6 of 6 takes reviewed
