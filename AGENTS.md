@@ -15,7 +15,7 @@ ClearFrame is a local agent that reviews AI video takes on one Dell Pro Max GB10
    | `vision/` | Danny | #6 |
    | `evidence/` | Jason | #8 |
    | `agent/` | Gael | #7, #10 |
-   | `rubric/` | Danny | #4 |
+   | `rubric/` | Danny | #4, #16 |
    | `scripts/` | Danny | #3, #9 |
    | `contracts/` | Everyone, by pull request only | #2 |
 
@@ -44,6 +44,7 @@ The gates enforce what they can; the rest is on you.
 
 - Run `scripts/install-hooks.sh` once per clone, on laptops and on the GB10. Pre-commit runs the staged secret scan and `make check`; pre-push runs `make verify`.
 - One branch per issue (`<name>/<issue>-<slug>`), small pull requests, and a normal merge, not squash, so the history shows the day. You may merge your own pull request once `make verify` passes, except contract changes.
+- Every pull request names its issue in its description: `Closes #N` when it finishes the issue, so GitHub links them and closes the issue on merge, or `Part of #N` when work remains. "Refs #N" or a bare mention doesn't link. CI fails a pull request without one (`scripts/check_pr_issue.py`). If work is left when an issue's pull request merges, move it to a new issue first.
 - When you or an agent get something wrong in a way that wasn't obvious, write a lesson in `.agents/lessons/`. If it can be checked, add the check to `scripts/validate_repo.py` or a test, and note that in the lesson.
 
 ## Git
