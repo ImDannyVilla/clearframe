@@ -15,12 +15,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from vision.model import FakeModel, ModelError  # noqa: E402
 from worker import flicker, main, review, takes  # noqa: E402
 
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 HAVE_FFMPEG = shutil.which(FFMPEG) is not None and shutil.which(os.environ.get("FFPROBE", "ffprobe")) is not None
 SAMPLE = json.loads((ROOT / "contracts" / "samples" / "result-4-2.json").read_text(encoding="utf-8"))
 PROMPT = SAMPLE["generation"]["prompt"]
+# Danny's fake model answers: the road-marking flaw on frames 48 to 64.
+ANSWERS_4_2 = ROOT / "vision" / "samples" / "answers-4-2.json"
 
 
 class FlickerRuleTest(unittest.TestCase):
@@ -71,17 +74,10 @@ class TakeIdTest(unittest.TestCase):
             self.assertIsNone(takes.parse_take_id(name), name)
 
 
-class ReviewHelpersTest(unittest.TestCase):
-    def test_runs_split_on_gaps(self):
-        self.assertEqual(review.runs_of([64, 48, 56, 100], 8), [[48, 56, 64], [100]])
-
-    def test_window_stays_inside_the_take(self):
-        self.assertEqual(review.window(2, 5, 8, 120), (0, 13))
-        self.assertEqual(review.window(115, 118, 8, 120), (107, 119))
-
+class SpreadTest(unittest.TestCase):
     def test_spread_keeps_both_ends(self):
-        self.assertEqual(review.spread(list(range(20)), 3), [0, 10, 19])
-        self.assertEqual(review.spread([1, 2], 8), [1, 2])
+        self.assertEqual(main.spread(list(range(20)), 3), [0, 10, 19])
+        self.assertEqual(main.spread([1, 2], 8), [1, 2])
 
 
 def make_clip(path: Path, vf: str | None = None, frames: int = 120) -> None:
@@ -94,6 +90,32 @@ def make_clip(path: Path, vf: str | None = None, frames: int = 120) -> None:
         cmd += ["-vf", vf]
     cmd += ["-frames:v", str(frames), "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p", str(path)]
     subprocess.run(cmd, check=True)
+
+
+class PeekingModel:
+    """Danny's FakeModel, plus a look at results/ during the first request."""
+
+    def __init__(self, inner, result_path: Path):
+        self.inner = inner
+        self.name = inner.name
+        self.result_path = result_path
+        self.seen: dict = {}
+
+    def ask(self, request, sampling):
+        if not self.seen:
+            self.seen = json.loads(self.result_path.read_text(encoding="utf-8"))
+            self.seen["tmp_left"] = list(self.result_path.parent.glob("*.tmp"))
+        return self.inner.ask(request, sampling)
+
+
+class FailingModel:
+    name = "failing"
+
+    def __init__(self, error: Exception):
+        self.error = error
+
+    def ask(self, request, sampling):
+        raise self.error
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg and ffprobe are needed for clip tests")
@@ -116,14 +138,9 @@ class WorkerClipTest(unittest.TestCase):
             f"4-2r1,4,fal.ai,bytedance/seedance-2.0/text-to-video,,\"{PROMPT}\"\n",
             encoding="utf-8",
         )
-        self.answers = self.tmp / "answers.json"
-        self.answers.write_text(json.dumps({
-            "model": "sample-answers",
-            "4-2": {"road_markings": {
-                "sparse": [{"frames": [48, 56, 64], "model_note": "The arrow points against traffic."}],
-                "dense": [{"frames": list(range(50, 61)), "model_note": "The right-lane arrow points at the camera."}],
-            }},
-        }), encoding="utf-8")
+        # A model that sees no flaw anywhere, for takes with no planted road flaw.
+        self.no_flaws = self.tmp / "no-flaws.json"
+        self.no_flaws.write_text("{}", encoding="utf-8")
         self.config = main.Config(
             input_dir=self.input,
             results_dir=self.results,
@@ -135,14 +152,15 @@ class WorkerClipTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def review(self, take_id, vf=None, loader=None):
+    def review(self, take_id, vf=None, model=None):
         clip = self.renders / f"{take_id}.mp4"
         make_clip(clip, vf)
-        loader = loader or (lambda: review.answers_file_reviewer(self.answers))
-        return main.review_take(take_id, clip, self.config, reviewer_loader=loader)
+        model = model or FakeModel.from_file(ANSWERS_4_2)
+        return main.review_take(take_id, clip, self.config, model_loader=lambda: model)
 
     def test_flicker_that_returns_is_a_measured_anomaly(self):
-        result = self.review("4-5", "eq=brightness=0.3:enable='between(n,61,63)'")
+        result = self.review("4-5", "eq=brightness=0.3:enable='between(n,61,63)'",
+                             FakeModel.from_file(self.no_flaws))
         self.assertEqual(result["checks"], {"exposure_flicker": "done", "road_markings": "done"})
         self.assertEqual(len(result["measured"]), 1)
         anomaly = result["measured"][0]
@@ -156,9 +174,10 @@ class WorkerClipTest(unittest.TestCase):
             self.assertTrue((self.results / path).is_file(), path)
         # Code flagged a moment, so the reviewer got a dense window around it.
         self.assertEqual(result["vision"]["dense_windows"], 1)
+        self.assertEqual(result["candidates"], [])
 
     def test_a_step_that_stays_is_not_reported(self):
-        result = self.review("4-6", "eq=brightness=0.3:enable='gte(n,60)'")
+        result = self.review("4-6", "eq=brightness=0.3:enable='gte(n,60)'", FakeModel.from_file(self.no_flaws))
         self.assertEqual(result["measured"], [])
         self.assertEqual(result["candidates"], [])
         self.assertEqual(result["vision"]["dense_windows"], 0)
@@ -170,17 +189,20 @@ class WorkerClipTest(unittest.TestCase):
         note = result["candidates"][0]
         self.assertEqual(note["issue_type"], "road_markings")
         self.assertEqual(note["pass"], "dense")
-        self.assertEqual((note["frame_start"], note["frame_end"]), (50, 60))
-        self.assertEqual((note["t_start"], note["t_end"]), (2.083, 2.5))
-        self.assertEqual(note["model_note"], "The right-lane arrow points at the camera.")
-        self.assertLessEqual(len(note["evidence"]), self.config.evidence_limit)
+        # The fake model sees the flaw on frames 48 to 64; the note stays inside them.
+        self.assertGreaterEqual(note["frame_start"], 48)
+        self.assertLessEqual(note["frame_end"], 64)
+        self.assertEqual(note["t_start"], round(note["frame_start"] / 24, 3))
+        self.assertEqual(note["t_end"], round(note["frame_end"] / 24, 3))
+        self.assertEqual(note["model_note"], json.loads(ANSWERS_4_2.read_text())["road_markings"]["note"])
+        self.assertTrue(note["evidence"])
         for path in note["evidence"]:
             self.assertTrue((self.results / path).is_file(), path)
         vision = result["vision"]
-        self.assertEqual(vision["model"], "sample-answers")
-        self.assertEqual(vision["sparse_frames_sent"], 15)  # every 8th of 120 frames
+        self.assertEqual(vision["model"], "fake:answers-4-2.json")
+        self.assertEqual(vision["sparse_frames_sent"], 16)
         self.assertEqual(vision["dense_windows"], 1)
-        self.assertEqual(vision["dense_frames_sent"], 33)  # frames 40 to 72: the note plus 8 each side
+        self.assertEqual(vision["dense_frames_sent"], 12)
 
     def test_result_file_matches_the_contract_shape(self):
         result = self.review("4-2")
@@ -189,6 +211,7 @@ class WorkerClipTest(unittest.TestCase):
         self.assertEqual(set(result), set(SAMPLE))
         self.assertEqual(set(result["render"]), set(SAMPLE["render"]))
         self.assertEqual(set(result["vision"]), set(SAMPLE["vision"]))
+        self.assertEqual(set(result["candidates"][0]), set(SAMPLE["candidates"][0]))
         self.assertEqual(result["schema"], "clearframe.result/1")
         self.assertEqual(result["revision"], 2)
         self.assertEqual(result["expected_takes"], 6)
@@ -209,47 +232,41 @@ class WorkerClipTest(unittest.TestCase):
         self.assertFalse((self.config.work_dir / "4-2").exists())
 
     def test_a_retake_names_its_parent(self):
-        result = self.review("4-2r1")
+        result = self.review("4-2r1", model=FakeModel.from_file(self.no_flaws))
         self.assertEqual(result["parent_take_id"], "4-2")
         self.assertEqual(result["candidates"], [])
 
-    def test_no_reviewer_ends_the_noted_check_in_error(self):
+    def test_no_model_configured_ends_the_noted_check_in_error(self):
+        clip = self.renders / "4-2.mp4"
+        make_clip(clip)
+
         def unavailable():
             raise review.ReviewerUnavailable("reviewer not available")
 
-        result = self.review("4-2", loader=unavailable)
+        result = main.review_take("4-2", clip, self.config, model_loader=unavailable)
         self.assertEqual(result["checks"], {"exposure_flicker": "done", "road_markings": "error"})
         self.assertEqual(result["errors"], ["road_markings: reviewer not available"])
 
-    def test_a_reviewer_crash_is_a_fixed_error_not_model_output(self):
-        def crashing():
-            def review_fn(check, pass_name, frames, context):
-                raise RuntimeError("model said something odd")
-            return review_fn
+    def test_a_model_server_failure_is_a_fixed_error(self):
+        result = self.review("4-2", model=FailingModel(ModelError("model server answered 500: boom")))
+        self.assertEqual(result["checks"]["road_markings"], "error")
+        self.assertEqual(result["errors"], ["road_markings: the reviewer gave no usable answer"])
+        self.assertEqual(result["candidates"], [])
 
-        result = self.review("4-2", loader=crashing)
+    def test_a_reviewer_crash_is_a_fixed_error_not_model_output(self):
+        result = self.review("4-2", model=FailingModel(RuntimeError("model said something odd")))
         self.assertEqual(result["errors"], ["road_markings: reviewer failed"])
 
     def test_revision_1_is_on_disk_while_checks_run(self):
-        seen = {}
-        canned = review.answers_file_reviewer(self.answers)
-
-        def peeking():
-            def review_fn(check, pass_name, frames, context):
-                if pass_name == "sparse":
-                    seen.update(json.loads((self.results / "4-2.json").read_text(encoding="utf-8")))
-                    seen["tmp_left"] = list(self.results.glob("*.tmp"))
-                return canned(check, pass_name, frames, context)
-            return review_fn
-
-        final = self.review("4-2", loader=peeking)
-        self.assertEqual(seen["revision"], 1)
-        self.assertEqual(set(seen["checks"].values()), {"running"})
-        self.assertEqual(seen["tmp_left"], [])
+        model = PeekingModel(FakeModel.from_file(ANSWERS_4_2), self.results / "4-2.json")
+        final = self.review("4-2", model=model)
+        self.assertEqual(model.seen["revision"], 1)
+        self.assertEqual(set(model.seen["checks"].values()), {"running"})
+        self.assertEqual(model.seen["tmp_left"], [])
         self.assertEqual(final["revision"], 2)
 
     def test_the_watcher_picks_each_take_up_once(self):
-        os.environ["VISION_ANSWERS"] = str(self.answers)
+        os.environ["VISION_ANSWERS"] = str(ANSWERS_4_2)
         try:
             make_clip(self.renders / "4-2.mp4")
             make_clip(self.renders / "not-a-take.mp4")
