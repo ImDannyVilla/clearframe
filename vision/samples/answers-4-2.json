@@ -1,0 +1,6 @@
+{
+  "road_markings": {
+    "flaw_frames": [[48, 64]],
+    "note": "The arrow in the right lane points toward the camera, against the direction of travel."
+  }
+}
