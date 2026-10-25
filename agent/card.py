@@ -21,7 +21,9 @@ RETAKE_CARD_FIELDS = frozenset({"take_id", "parent_take_id", "status", "counts",
 COUNTED_STATES = ("measured", "confirmed", "candidate")
 
 TAKE_ID = re.compile(r"[0-9]+-[0-9]+(?:r[1-9][0-9]*)?")
-LINK = re.compile(r"http://127\.0\.0\.1:[0-9]+/(?:shot/[0-9]+|take/[0-9]+-[0-9]+(?:r[1-9][0-9]*)?)")
+# The evidence-page link: `EVIDENCE_BASE_URL` is configurable (agent/README.md),
+# so any host is allowed, but the path must be a shot or take page.
+LINK = re.compile(r"https?://[A-Za-z0-9.-]+:[0-9]+/(?:shot/[0-9]+|take/[0-9]+-[0-9]+(?:r[1-9][0-9]*)?)")
 
 
 class CardError(ValueError):
@@ -42,7 +44,7 @@ def _check_take_id(value) -> str:
 
 def _check_link(value) -> str:
     if not isinstance(value, str) or not LINK.fullmatch(value):
-        raise CardError("the link must be the evidence page on 127.0.0.1")
+        raise CardError("the link must be an evidence-page link (base URL plus /shot/<n> or /take/<id>)")
     return value
 
 

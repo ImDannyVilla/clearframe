@@ -103,6 +103,7 @@ def ingest_result(conn: sqlite3.Connection, result: dict) -> str:
     outcome = "updated"
     if is_final(result) and not db.has_event(conn, "result_ingested", take_id=take_id):
         _write_issues(conn, take_id, result)
+        _write_generation(conn, take_id, result)
         prompt = (result.get("generation") or {}).get("prompt") or ""
         conn.execute(
             "INSERT OR IGNORE INTO prompt_versions (take_id, version, prompt, prompt_hash, fixes, created_at) "
@@ -136,6 +137,18 @@ def _write_issues(conn: sqlite3.Connection, take_id: str, result: dict) -> None:
             (f"{take_id}-{number}", take_id, item["issue_type"], state, item["frame_start"], item["frame_end"],
              item["t_start"], item["t_end"], value, threshold, note, json.dumps(item.get("evidence") or [])),
         )
+
+
+def _write_generation(conn: sqlite3.Connection, take_id: str, result: dict) -> None:
+    """The result file's generation block, so #10's queue writer can repeat it."""
+    generation = result.get("generation") or {}
+    conn.execute(
+        "INSERT INTO generation (take_id, tool, model, seed) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(take_id) DO UPDATE SET tool = excluded.tool, model = excluded.model,"
+        " seed = excluded.seed",
+        (take_id, generation.get("tool", ""), generation.get("model", ""),
+         json.dumps(generation.get("seed"))),
+    )
 
 
 def _final_originals(conn: sqlite3.Connection, shot: int) -> int:

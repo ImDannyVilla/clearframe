@@ -270,7 +270,7 @@ class RealActionsTest(EvidenceCase):
         """#10 reads tool and model from its `generation` table; seed it as an ingest would."""
         from agent import approval
         store = approval.Store(self.db_path)
-        store.conn.execute("INSERT INTO generation (take_id, tool, model, seed) VALUES (?, ?, ?, ?)",
+        store.conn.execute("INSERT OR REPLACE INTO generation (take_id, tool, model, seed) VALUES (?, ?, ?, ?)",
                            ("4-2", SAMPLE["generation"]["tool"], SAMPLE["generation"]["model"],
                             json.dumps(SAMPLE["generation"]["seed"])))
         store.close()
