@@ -12,6 +12,9 @@ through this module:
 - `recompute_status(conn, take_id, actor)` applies the contract's status rule.
   Call it after every ingest and every decision; it logs `status_changed`.
 
+One extra table, `generation`, holds the result file's generation block
+(tool, model, seed) so #10's queue writer can repeat it; the ingest fills it.
+
 Empty values from the contract ("empty for originals", "empty for notes") are
 stored as NULL.
 """
@@ -109,6 +112,12 @@ CREATE TABLE IF NOT EXISTS events (
     take_id TEXT,
     shot INTEGER,
     detail TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS generation (
+    take_id TEXT PRIMARY KEY,
+    tool TEXT NOT NULL,
+    model TEXT NOT NULL,
+    seed TEXT NOT NULL DEFAULT 'null'
 );
 CREATE INDEX IF NOT EXISTS issues_by_take ON issues (take_id);
 CREATE INDEX IF NOT EXISTS events_by_take ON events (take_id, kind);
