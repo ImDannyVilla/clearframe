@@ -25,7 +25,7 @@ ClearFrame is a local agent that reviews AI video takes on one Dell Pro Max GB10
 
 The gates enforce what they can; the rest is on you.
 
-- **Nothing leaves the box.** No code calls a cloud model or a cloud API. The sandbox reaches only Slack and the local model; the worker and the reviewer model sit on an internal network with no internet route.
+- **Nothing leaves the box.** No code calls a cloud model or a cloud API. The sandbox reaches only Slack and the local model; the worker sits on an internal network with no internet route and reaches the model over it.
 - **No footage, frames, database, `.env`, tokens or keys in git.** `make check` scans for credentials and for banned file types.
 - **Models only raise candidate notes.** Code measures, sets every timestamp from frame positions, applies fixes from the fix library, and builds the Slack card from its template. No model text reaches Slack.
 - **ClearFrame never generates video** and never queues a prompt without a person's approval on the evidence page.

@@ -35,6 +35,7 @@ CONTRACT_TERMS = (
     "accepted_as_is",
     "approved_for_regeneration",
     "exposure_flicker",
+    "flicker_return_frames",
     "road_markings",
     "extra_finger",
     "prompt_versions",

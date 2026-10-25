@@ -17,8 +17,8 @@ Built at the Dell x NVIDIA AI Hackathon, San Francisco, October 25, 2026, by Dan
 
 | Piece | What | Where |
 | --- | --- | --- |
-| Agent model | Qwen3.6-35B-A3B (NVFP4) | NemoClaw's managed vLLM, reached at `inference.local` |
-| Reviewer model | Nemotron 3 Nano Omni 30B-A3B (NVFP4); Cosmos-Reason2-8B as the challenger | vLLM 0.20.0 on the host, on the offline `clearframe-net` network |
+| Model | Qwen3.6-35B-A3B (NVFP4), for both the agent and the vision checks | NemoClaw's managed vLLM. The sandbox reaches it at `inference.local`; the worker reaches it over the offline `clearframe-net` network |
+| Later challenger | Cosmos-Reason2-8B | vLLM 0.20.0 on the host, next to Qwen |
 | Measurer | ffmpeg and Python's standard library | The review worker container on `clearframe-net` |
 | Agent runtime | OpenClaw in an OpenShell sandbox, set up by NemoClaw (Restricted policy plus Slack) | The sandbox |
 

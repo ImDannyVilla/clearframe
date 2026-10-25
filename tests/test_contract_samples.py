@@ -35,6 +35,10 @@ class ResultSampleTest(unittest.TestCase):
         for state in self.result["checks"].values():
             self.assertIn(state, ("done", "error"))
 
+    def test_vision_block_names_the_model(self):
+        self.assertNotIn("omni", self.result)
+        self.assertTrue(self.result["vision"]["model"])
+
 
 class QueueSampleTest(unittest.TestCase):
     def setUp(self):
