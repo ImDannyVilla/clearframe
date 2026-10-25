@@ -1,0 +1,34 @@
+# Video and frames never go in git: takes, retakes and evidence frames stay on the GB10
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi
+results/
+frames/
+
+# Secrets: tokens live in a password manager, never here
+.env
+.env.*
+*.pem
+
+# Local state
+*.db
+*.db-journal
+*.sqlite
+
+# Large archives (weights and images travel on the SanDisk)
+*.tar
+*.tar.gz
+*.tar.xz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,21 @@
+{
+  "schema": "clearframe.queue/1",
+  "request_id": "4-2-v2",
+  "parent_take_id": "4-2",
+  "next_take_id": "4-2r1",
+  "shot": 4,
+  "prompt_version": 2,
+  "prompt_hash": "sha256:08e2b485acb99acac2ef6705b87465634da1c9a1c66d86c816d1ba1b07cf1ed6",
+  "prompt": "The Vela drives down a city street at golden hour, tracking shot, lane arrows painted on the road.\n\nMake sure: lane arrows point in the direction of travel and lane lines stay continuous.",
+  "fixes": ["road_markings"],
+  "generation": {
+    "tool": "fal.ai",
+    "model": "bytedance/seedance-2.0/text-to-video",
+    "seed": null
+  },
+  "approval": {
+    "approval_id": 1,
+    "approver": "Creative director",
+    "approved_at": "2026-10-25T13:41:07-07:00"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema": "clearframe.result/1",
+  "take_id": "4-2",
+  "parent_take_id": null,
+  "shot": 4,
+  "expected_takes": 6,
+  "revision": 2,
+  "written_at": "2026-10-25T12:48:09-07:00",
+  "worker_commit": "3f9c2ab",
+  "render": {
+    "file": "4-2.mp4",
+    "sha256": "sha256:7d1e0c4b9a2f6e8d3c5b1a7f9e2d4c6b8a0f1e3d5c7b9a2e4f6d8c0b1a3e5f7d",
+    "fps": 24,
+    "frames": 120,
+    "width": 1280,
+    "height": 720
+  },
+  "generation": {
+    "tool": "fal.ai",
+    "model": "bytedance/seedance-2.0/text-to-video",
+    "seed": 18342,
+    "prompt": "The Vela drives down a city street at golden hour, tracking shot, lane arrows painted on the road."
+  },
+  "checks": {
+    "exposure_flicker": "done",
+    "road_markings": "done"
+  },
+  "measured": [],
+  "candidates": [
+    {
+      "issue_type": "road_markings",
+      "pass": "sparse",
+      "frame_start": 48,
+      "frame_end": 64,
+      "t_start": 2.0,
+      "t_end": 2.667,
+      "model_note": "The arrow in the right lane points toward the camera, against the direction of travel.",
+      "evidence": [
+        "frames/4-2/000048.jpg",
+        "frames/4-2/000056.jpg",
+        "frames/4-2/000064.jpg"
+      ]
+    }
+  ],
+  "brightness_series": "frames/4-2/brightness.json",
+  "omni": {
+    "model": "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
+    "sparse_frames_sent": 16,
+    "dense_windows": 0,
+    "dense_frames_sent": 0,
+    "seconds": 9.4
+  },
+  "errors": []
+}
