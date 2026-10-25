@@ -41,6 +41,8 @@ class Request:
 class Reply:
     text: str
     seconds: float
+    # The server's finish_reason; "length" with no text means thinking used up max_tokens.
+    finish_reason: str = ""
 
 
 class ModelError(RuntimeError):
@@ -111,10 +113,13 @@ class VisionClient:
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
             raise ModelError(f"model server unreachable or bad reply: {error}") from None
         try:
-            text = data["choices"][0]["message"].get("content") or ""
+            choice = data["choices"][0]
+            text = choice["message"].get("content") or ""
         except (KeyError, IndexError, TypeError, AttributeError):
             raise ModelError("model server reply has no choices[0].message") from None
-        return Reply(text=text, seconds=round(time.monotonic() - started, 3))
+        return Reply(
+            text=text, seconds=round(time.monotonic() - started, 3), finish_reason=str(choice.get("finish_reason") or "")
+        )
 
 
 class FakeModel:
