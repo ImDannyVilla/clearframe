@@ -13,7 +13,7 @@ The first live run of `vision/accuracy.py` against Qwen3.6 on `nemoclaw-vllm` (o
 
 ## Root cause
 
-The prompt described the format as `<frame number>: yes`, with no example and no "start at 1", and the parser wanted exactly 1 to N. An empty reply with thinking on most likely means the thinking used up `max_tokens` (8192), but the run file didn't record `finish_reason`, so it looked like garbage.
+The prompt described the format as `<frame number>: yes`, with no example and no "start at 1", and the parser wanted exactly 1 to N. An empty reply with thinking on means the thinking used up `max_tokens` (8192), but the run file didn't record `finish_reason`, so it looked like garbage. A rerun with `finish_reason` logged confirmed it: grid with thinking on had 8 of 9 replies cut off at 8192 tokens (456 s for one take), while video with thinking on parsed 3 of 3 in 44 s.
 
 ## Fix
 
@@ -21,7 +21,7 @@ The prompt described the format as `<frame number>: yes`, with no example and no
 - `parse_answers` reads 0 to N-1 as 1 to N, and reads a reply with no numbers in order, only when it has exactly one answer per frame.
 - Each logged reply keeps the server's `finish_reason`, and `accuracy.py run` prints how many replies were cut off at `max_tokens`. `--max-tokens` sets the limit.
 
-After the fix, the same run with thinking off parsed 24 of 24.
+After the fix, the same run with thinking off parsed 24 of 24. Grid with thinking on still needs a larger `--max-tokens`, or should be left out.
 
 ## Prevention
 
