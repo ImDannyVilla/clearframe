@@ -169,9 +169,23 @@ def parse(text: str) -> dict:
     return value
 
 
-def _require(condition: bool, message: str) -> None:
+def _require(condition: object, message: str) -> None:
     if not condition:
         raise RubricError(message)
+
+
+def _as_list(value: object, message: str) -> list:
+    """value, if it is a list with at least one item."""
+    if not isinstance(value, list) or not value:
+        raise RubricError(message)
+    return value
+
+
+def _as_dict(value: object, message: str) -> dict:
+    """value, if it is a mapping with at least one key."""
+    if not isinstance(value, dict) or not value:
+        raise RubricError(message)
+    return value
 
 
 def _is_text(value) -> bool:
@@ -182,8 +196,7 @@ def validate(rubric: dict) -> dict:
     """Check the rubric against the contract; return it unchanged."""
     _require(rubric.get("schema") == SCHEMA, f"schema must be {SCHEMA}")
 
-    checks = rubric.get("checks")
-    _require(isinstance(checks, list) and checks, "checks must list at least one issue type")
+    checks = _as_list(rubric.get("checks"), "checks must list at least one issue type")
     for check in checks:
         _require(check in ISSUE_TYPES, f"checks: unknown issue type: {check}")
     _require(len(set(checks)) == len(checks), "checks: an issue type is listed twice")
@@ -199,27 +212,22 @@ def validate(rubric: dict) -> dict:
         "flicker_return_frames must be a whole number of frames, 1 or more",
     )
 
-    approvers = rubric.get("approvers")
-    _require(isinstance(approvers, list) and approvers, "approvers must list at least one name")
+    approvers = _as_list(rubric.get("approvers"), "approvers must list at least one name")
     for name in approvers:
         _require(_is_text(name), f"approvers: not a name: {name!r}")
     _require(len(set(approvers)) == len(approvers), "approvers: a name is listed twice")
 
-    labels = rubric.get("fix_labels")
-    _require(
-        isinstance(labels, dict) and tuple(labels) == FIX_LABEL_KEYS,
-        f"fix_labels must have exactly {', '.join(FIX_LABEL_KEYS)}, in that order",
-    )
+    message = f"fix_labels must have exactly {', '.join(FIX_LABEL_KEYS)}, in that order"
+    labels = _as_dict(rubric.get("fix_labels"), message)
+    _require(tuple(labels) == FIX_LABEL_KEYS, message)
     for key, label in labels.items():
         _require(_is_text(label), f"fix_labels.{key}: not a label")
 
-    library = rubric.get("fix_library")
-    _require(
-        isinstance(library, dict) and set(library) == set(ISSUE_TYPES),
-        f"fix_library needs one entry per issue type: {', '.join(ISSUE_TYPES)}",
-    )
+    message = f"fix_library needs one entry per issue type: {', '.join(ISSUE_TYPES)}"
+    library = _as_dict(rubric.get("fix_library"), message)
+    _require(set(library) == set(ISSUE_TYPES), message)
     for issue_type, entry in library.items():
-        _require(isinstance(entry, dict) and entry, f"fix_library.{issue_type}: no lines")
+        entry = _as_dict(entry, f"fix_library.{issue_type}: no lines")
         keys = tuple(entry)
         _require(
             set(keys) <= set(FIX_LABEL_KEYS)
@@ -234,33 +242,26 @@ def validate(rubric: dict) -> dict:
     order = [t for t in library if t in checks]
     _require(order == checks, "checks must follow fix_library order")
 
-    card = rubric.get("card")
-    _require(isinstance(card, dict), "card is missing")
-    _require(
-        isinstance(card.get("status_labels"), dict) and tuple(card["status_labels"]) == STATUSES,
-        f"card.status_labels must have every status, in contract order: {', '.join(STATUSES)}",
-    )
-    state_labels = card.get("state_labels")
-    _require(
-        isinstance(state_labels, dict) and tuple(state_labels) == COUNTED_STATES,
-        f"card.state_labels must have exactly {', '.join(COUNTED_STATES)}",
-    )
+    card = _as_dict(rubric.get("card"), "card is missing")
+    message = f"card.status_labels must have every status, in contract order: {', '.join(STATUSES)}"
+    status_labels = _as_dict(card.get("status_labels"), message)
+    _require(tuple(status_labels) == STATUSES, message)
+    message = f"card.state_labels must have exactly {', '.join(COUNTED_STATES)}"
+    state_labels = _as_dict(card.get("state_labels"), message)
+    _require(tuple(state_labels) == COUNTED_STATES, message)
     for state, forms in state_labels.items():
-        _require(
-            isinstance(forms, dict) and tuple(forms) == ("one", "many"),
-            f"card.state_labels.{state} needs `one` and `many`",
-        )
-    _require(
-        isinstance(card.get("category_labels"), dict)
-        and tuple(card["category_labels"]) == tuple(library),
-        "card.category_labels needs one label per issue type, in fix_library order",
-    )
+        message = f"card.state_labels.{state} needs `one` and `many`"
+        _require(tuple(_as_dict(forms, message)) == ("one", "many"), message)
+    message = "card.category_labels needs one label per issue type, in fix_library order"
+    category_labels = _as_dict(card.get("category_labels"), message)
+    _require(tuple(category_labels) == tuple(library), message)
     for path, allowed in CARD_TEMPLATES.items():
         name = "card." + ".".join(path)
-        template = card
+        template: object = card
         for part in path:
             template = template.get(part) if isinstance(template, dict) else None
-        _require(isinstance(template, str) and template != "", f"{name} is missing")
+        if not isinstance(template, str) or template == "":
+            raise RubricError(f"{name} is missing")
         try:
             parts = string.Formatter().parse(template)
             fields = {field for _, field, _, _ in parts if field is not None}
@@ -268,9 +269,10 @@ def validate(rubric: dict) -> dict:
             raise RubricError(f"{name}: bad template: {error}") from None
         _require(
             fields <= allowed,
-            f"{name} may use only {sorted(allowed) or 'no placeholders'}, not {sorted(fields - allowed)}",
+            f"{name} may use only {sorted(allowed) or 'no placeholders'}, "
+            f"not {sorted(fields - allowed)}",
         )
-    for labels in (card["status_labels"], card["category_labels"]):
+    for labels in (status_labels, category_labels):
         for key, label in labels.items():
             _require(_is_text(label), f"card: no label for {key}")
     for forms in state_labels.values():

@@ -254,7 +254,7 @@ class LoaderTest(unittest.TestCase):
 
     def test_matches_pyyaml_when_installed(self):
         try:
-            import yaml
+            import yaml  # pyright: ignore[reportMissingModuleSource]
         except ImportError:
             self.skipTest("PyYAML is not installed")
         self.assertEqual(rubric_loader.parse(self.text), yaml.safe_load(self.text))
