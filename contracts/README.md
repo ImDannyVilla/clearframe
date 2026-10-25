@@ -65,6 +65,8 @@ The worker writes one JSON file per take to `results/<take_id>.json`. With its e
 }
 ```
 
+**Flicker is a spike that returns.** Brightness jumps past the threshold and comes back within `flicker_return_frames` frames, set in `rubric/rubric.yaml`. A change that stays, like a cut or the car driving into shadow, is not flicker and is not reported.
+
 | Field | Meaning |
 | --- | --- |
 | `schema` | `clearframe.result/1`. Raise the number on any breaking change. |
@@ -76,9 +78,9 @@ The worker writes one JSON file per take to `results/<take_id>.json`. With its e
 | `generation` | Copied from `generation_log.csv`. The prompt becomes prompt version 1. The seed is the one the tool reports, when it reports one. |
 | `checks` | Every enabled check: `running`, `done` or `error`. |
 | `measured` | Code's anomalies: frames, seconds, value, threshold, unit, evidence. |
-| `candidates` | The reviewer's notes: which pass (`sparse` or `dense`), frames, seconds, the model's own words, evidence. |
+| `candidates` | The reviewer's notes: which pass, frames, seconds, the model's own words, evidence. `sparse` is the pass over the whole take; `dense` is consecutive frames plus a road crop around any moment code flagged or the sparse pass noted. |
 | `brightness_series` | A JSON list of mean brightness per frame (0–255), for the evidence page's plot. |
-| `omni` | Model, frames sent per pass, seconds spent. These feed the closing numbers. |
+| `vision` | The vision model's name, frames sent per pass, seconds spent. These feed the closing numbers. |
 | `errors` | One short fixed message per failed check, never model output. |
 
 **Write rules**

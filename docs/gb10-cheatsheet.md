@@ -2,16 +2,18 @@
 
 Commands for setting up and running ClearFrame on the GB10. This sheet assumes you named the sandbox `clearframe` at onboarding. Command names differ between NemoClaw versions, so check `nemoclaw onboard --help` on the box first.
 
-## Host network: Omni and the worker
+Qwen3.6 is the only model. NemoClaw's model server (container `nemoclaw-vllm`) runs it for the agent and for the vision checks.
 
-Omni and the review worker run on the host, outside OpenShell, so an internal Docker network is the only thing keeping them offline. Run these on the GB10 host.
+## Host network: the worker and its route to Qwen
 
-**Load what's on the stick.** It mounts at `/media/$USER/SanDisk`; check with `ls /media/$USER`.
+The review worker runs on the host, outside OpenShell, so an internal Docker network is the only thing keeping it offline. It reaches Qwen because we add NemoClaw's model server to that same network. Run these on the GB10 host.
+
+**Load what's on the stick.** It mounts at `/media/$USER/SanDisk`; check with `ls /media/$USER`. The vLLM 0.20.0 image is only for Cosmos later.
 
 ```bash
-docker load -i /media/$USER/SanDisk/vllm-0.20.0.tar
-docker load -i /media/$USER/SanDisk/python-3.12-slim.tar
 docker load -i /media/$USER/SanDisk/nemoclaw-vllm.tar
+docker load -i /media/$USER/SanDisk/python-3.12-slim.tar
+docker load -i /media/$USER/SanDisk/vllm-0.20.0.tar
 mkdir -p ~/.cache/huggingface && tar -xf /media/$USER/SanDisk/hf-models.tar -C ~/.cache/huggingface
 tar -xJf /media/$USER/SanDisk/ffmpeg/ffmpeg-release-arm64-static.tar.xz -C ~
 ```
@@ -22,35 +24,54 @@ tar -xJf /media/$USER/SanDisk/ffmpeg/ffmpeg-release-arm64-static.tar.xz -C ~
 docker network create --internal clearframe-net
 ```
 
-**Start Omni.** Flags come from the model card's DGX Spark example, cut to our memory budget, with no audio and no `pip install`, since the network is offline.
+**Check how NemoClaw started Qwen.**
 
 ```bash
-docker run -d --name omni --network clearframe-net --gpus all --ipc=host --shm-size=16g \
+docker inspect nemoclaw-vllm --format '{{json .Args}}'
+```
+
+- **`--language-model-only`** means text only, so images won't work. Use the fallback below.
+- **`--limit-mm-per-prompt`** caps images per request. If it's one, send a grid or frames as one video.
+- **The access key:** find the one NemoClaw set, in that output or in NemoClaw's config. Put it in `~/clearframe-input/vision.env` as `VISION_API_KEY=...`, with the served model name from `/v1/models` as `VISION_MODEL=...`. That file never goes in git.
+
+**Give the worker a route.** The worker then calls `http://nemoclaw-vllm:8000/v1` with that key. If NemoClaw restarts its server, run this again.
+
+```bash
+docker network connect clearframe-net nemoclaw-vllm
+```
+
+**How to send frames to it**
+
+- **Base64:** NemoClaw's server can't read our files, so send frames as base64 (`data:image/jpeg;base64,...`).
+- **Qwen samples video at 2 fps by default.** To show every frame of a moment, send frames as images, as one grid, or as one video built from the frames you choose (`data:video/jpeg;base64,...`, frames joined by commas).
+- **Thinking is on by default.** Turn it off per request with `"chat_template_kwargs": {"enable_thinking": false}`.
+- **The agent and the vision checks share this server,** so measure seconds per take with a whole batch of takes.
+
+**Fallback: run Qwen yourselves.** Use this only if NemoClaw's server won't take images. Start Qwen with our flags, then onboard NemoClaw with `NEMOCLAW_PROVIDER=vllm` to attach to it; check `nemoclaw onboard --help` for how it finds the server. Point `VISION_URL` at `http://qwen:8000/v1`.
+
+```bash
+docker run -d --name qwen --gpus all --ipc=host --shm-size=16g -p 127.0.0.1:8000:8000 \
   -e HF_HUB_OFFLINE=1 \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   -v ~/clearframe/results:/results:ro \
-  --entrypoint vllm vllm/vllm-openai:v0.20.0 \
-  serve nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 \
-  --served-model-name omni --port 8000 --trust-remote-code \
-  --gpu-memory-utilization 0.35 --max-model-len 32768 --max-num-seqs 8 \
+  --entrypoint vllm nvcr.io/nvidia/vllm:26.05.post1-py3 \
+  serve nvidia/Qwen3.6-35B-A3B-NVFP4 \
+  --served-model-name qwen --port 8000 \
+  --gpu-memory-utilization 0.40 --max-model-len 65536 --max-num-seqs 8 \
   --limit-mm-per-prompt '{"video": 1, "image": 8}' \
-  --media-io-kwargs '{"video": {"fps": 4, "num_frames": 256}}' \
   --allowed-local-media-path /results \
-  --reasoning-parser nemotron_v3
-docker logs -f omni   # wait for "Application startup complete"
+  --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
+docker network connect clearframe-net qwen
 ```
 
-- **fps 4** gives Omni 20 frames of a 5-second take; the card uses 2. It's set per server, so to show every frame of a flagged moment, send frames as images or one grid.
-- **Reasoning** is on by default. Turn it off per request with `"chat_template_kwargs": {"enable_thinking": false}`.
-- **`--video-pruning-rate 0.5`** speeds things up by dropping repeated video tokens. Leave it off while you test accuracy.
-- **If vLLM 0.20.0 won't start,** swap the image for `nvcr.io/nvidia/vllm:26.05.post1-py3`, which has vLLM 0.21.0.
-- **Frames:** Omni sees results at `/results`, so the worker passes paths like `file:///results/frames/4-2/000048.jpg`.
+With this fallback, Qwen can also read frames as `file:///results/...`.
 
 **Start the worker** once #5's code exists. The script path is whatever Jason names it.
 
 ```bash
 docker run -d --name worker --network clearframe-net \
-  -e OMNI_URL=http://omni:8000/v1 \
+  --env-file ~/clearframe-input/vision.env \
+  -e VISION_URL=http://nemoclaw-vllm:8000/v1 \
   -e PATH=/opt/ffmpeg:/usr/local/bin:/usr/bin:/bin \
   -v ~/clearframe/app:/app:ro \
   -v ~/clearframe/results:/results \
@@ -61,16 +82,16 @@ docker run -d --name worker --network clearframe-net \
 
 The network has no PyPI, so the worker uses Python's standard library only, or wheels you bring in. After a `git pull`, run `docker restart worker`.
 
-**Check it (smoke test 6).** The first command prints Omni's model list. The second must fail; if it succeeds, the network isn't internal.
+**Check it (smoke test 6).** The first command prints Qwen's model list through the worker's network. The second must fail; if it succeeds, the network isn't internal.
 
 ```bash
-docker run --rm --network clearframe-net python:3.12-slim python -c "import urllib.request as u; print(u.urlopen('http://omni:8000/v1/models').read()[:120])"
+docker run --rm --network clearframe-net --env-file ~/clearframe-input/vision.env python:3.12-slim python -c "import os, urllib.request as u; r = u.Request('http://nemoclaw-vllm:8000/v1/models', headers={'Authorization': 'Bearer ' + os.environ['VISION_API_KEY']}); print(u.urlopen(r).read()[:200])"
 docker run --rm --network clearframe-net python:3.12-slim python -c "import urllib.request as u; u.urlopen('https://example.com', timeout=5)"
 ```
 
-### Cosmos instead of Omni (the accuracy test)
+### Cosmos-Reason2 later (challenger or second voter)
 
-Cosmos-Reason2-8B isn't on the stick, so download it on the GB10 before the wifi fills. It needs about 32 GB, and Qwen plus Omni already reserve about 96 of 128 GB, so it can't run next to Omni. It swaps in.
+Cosmos-Reason2-8B isn't on the stick, so download it on the GB10. Without Omni there's room for it next to Qwen: about 0.40 plus 0.30 of memory.
 
 **Download it (17.5 GB, once).** First click Agree on its Hugging Face page, with the account whose token you use. DGX OS blocks system-wide pip installs, so use a small venv:
 
@@ -87,10 +108,9 @@ docker run --rm -it -v ~/.cache/huggingface:/root/.cache/huggingface --entrypoin
 docker run --rm -v ~/.cache/huggingface:/root/.cache/huggingface --entrypoint hf vllm/vllm-openai:v0.20.0 download nvidia/Cosmos-Reason2-8B
 ```
 
-**Swap it in.** Stop Omni, then start Cosmos on the same network with the same image:
+**Start it next to Qwen**, on the same network:
 
 ```bash
-docker stop omni
 docker run -d --name cosmos --network clearframe-net --gpus all --ipc=host --shm-size=16g \
   -e HF_HUB_OFFLINE=1 \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
@@ -105,11 +125,10 @@ docker run -d --name cosmos --network clearframe-net --gpus all --ipc=host --shm
 docker logs -f cosmos
 ```
 
-- **Memory:** 0.30 is about 38 GB, above its 32 GB minimum. With Omni stopped, Qwen plus Cosmos is about 0.70.
+- **Memory:** 0.30 is about 38 GB, above its 32 GB minimum. Qwen plus Cosmos is about 0.70.
 - **fps 4** matches its model card's training setup.
 - **Requests:** set `max_tokens` to 4096 so its reasoning isn't cut off, and read the answer that comes after the reasoning.
-- **Pointing the worker at it:** use `http://cosmos:8000/v1` with model `cosmos`, run the same takes, and count catches and false notes.
-- **Afterwards:** keep the winner and remove the other with `docker rm -f omni` or `docker rm -f cosmos`.
+- **Pointing the worker at it:** use `VISION_URL=http://cosmos:8000/v1` with `VISION_MODEL=cosmos`, run the same takes, and count catches and false notes. Keep the winner, or use both as voters.
 
 ## Skills
 
@@ -196,8 +215,9 @@ Its pages: `http://127.0.0.1:8090/shot/4` and `http://127.0.0.1:8090/take/4-2`.
 
 ## Sources
 
-- [Nemotron 3 Nano Omni model card](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4): the DGX Spark `docker run` example and memory tips
+- [Qwen3.6-35B-A3B model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B): image and video input, the 2 fps default, thinking mode, vLLM flags
 - [Cosmos-Reason2-8B model card](https://huggingface.co/nvidia/Cosmos-Reason2-8B): memory minimum, fps 4, `max_tokens`
+- [vLLM: multimodal inputs](https://docs.vllm.ai/en/latest/features/multimodal_inputs.html): images per request, base64 frames as a video
 - [NemoClaw: choosing between the NemoClaw and OpenShell commands](https://docs.nvidia.com/nemoclaw/latest/reference/cli-selection-guide.html) and the [quickstart](https://www.mintlify.com/NVIDIA/NemoClaw/get-started/quickstart): `connect`, `openclaw tui`
 - [OpenClaw skills](https://docs.openclaw.ai/skills) and [the NemoClaw workspace skill](https://www.skills.sh/nvidia/nemoclaw/nemoclaw-workspace): skill folders and the workspace path
 - [OpenClaw cron commands](https://docs.openclaw.ai/tr/cli/cron) and [a cron guide](https://www.stack-junkie.com/blog/openclaw-cron-jobs-automation-guide): `cron add`, `--every`

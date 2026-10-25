@@ -43,8 +43,8 @@
     }
   ],
   "brightness_series": "frames/4-2/brightness.json",
-  "omni": {
-    "model": "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
+  "vision": {
+    "model": "nvidia/Qwen3.6-35B-A3B-NVFP4",
     "sparse_frames_sent": 16,
     "dense_windows": 0,
     "dense_frames_sent": 0,
