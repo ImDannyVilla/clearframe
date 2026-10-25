@@ -26,8 +26,11 @@ checks:
 flicker_threshold: 8.0
 # A spike must come back within this many frames to count as flicker. A change
 # that stays longer (a cut, the car driving into shadow) is not reported.
-# 6 frames is a quarter of a second at 24 fps.
-flicker_return_frames: 6
+# 16 frames is two thirds of a second at 24 fps. Blake's Shot 3 flicker clip
+# dims from about 97 to 33 three times, for 6, 14 and 15 frames; 6 caught only
+# the shortest. Its largest jump is 33.8 against a threshold of 8.0, and the
+# clean Shot 3 clip's is 1.0.
+flicker_return_frames: 16
 
 # The names allowed to approve on the evidence page. They never reach Slack.
 approvers:

@@ -30,4 +30,4 @@ rubric.fix_lines(policy, "road_markings")    # ["Make sure: lane arrows point ..
 - **One fix-library entry per enabled check**, written from the difference between Blake's bad and good prompts. A fallback may keep an entry ready; `rubric.py` refuses an enabled check without one.
 - **The fix library is what the fixed takes were made from.** Change a line and the fixed takes must be regenerated from the new prompt. The test rebuilds 4-2's version 2 and checks its hash against the contract.
 - **Card templates use only the contract's card fields.** `rubric.py` refuses any other placeholder, and the test renders the contract's two sample cards from the templates.
-- The flicker threshold and `flicker_return_frames` are a first setting; check them against the worker's brightness series (#5).
+- The flicker threshold and `flicker_return_frames` were checked against Blake's Shot 3 clips: 8.0 holds, and the return window went from 6 to 16 frames so the flicker clip's longer dim-outs count. `tests/test_rubric.py` replays that clip's brightness series.
