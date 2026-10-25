@@ -223,10 +223,11 @@ def validate(rubric: dict) -> dict:
     for key, label in labels.items():
         _require(_is_text(label), f"fix_labels.{key}: not a label")
 
-    message = f"fix_library needs one entry per issue type: {', '.join(ISSUE_TYPES)}"
-    library = _as_dict(rubric.get("fix_library"), message)
-    _require(set(library) == set(ISSUE_TYPES), message)
+    library = _as_dict(rubric.get("fix_library"), "fix_library needs an entry per enabled check")
+    for check in checks:
+        _require(check in library, f"fix_library has no entry for the enabled check {check}")
     for issue_type, entry in library.items():
+        _require(issue_type in ISSUE_TYPES, f"fix_library: unknown issue type: {issue_type}")
         entry = _as_dict(entry, f"fix_library.{issue_type}: no lines")
         keys = tuple(entry)
         _require(
@@ -252,9 +253,9 @@ def validate(rubric: dict) -> dict:
     for state, forms in state_labels.items():
         message = f"card.state_labels.{state} needs `one` and `many`"
         _require(tuple(_as_dict(forms, message)) == ("one", "many"), message)
-    message = "card.category_labels needs one label per issue type, in fix_library order"
+    message = f"card.category_labels needs one label per issue type: {', '.join(ISSUE_TYPES)}"
     category_labels = _as_dict(card.get("category_labels"), message)
-    _require(tuple(category_labels) == tuple(library), message)
+    _require(set(category_labels) == set(ISSUE_TYPES), message)
     for path, allowed in CARD_TEMPLATES.items():
         name = "card." + ".".join(path)
         template: object = card

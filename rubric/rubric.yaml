@@ -8,14 +8,21 @@
 
 schema: "clearframe.rubric/1"
 
-# The checks the worker runs. extra_finger is the fallback for road_markings;
-# enable it only if the vision decision (#6) switches to Shot 2.
+# The checks the worker runs. The noted checks come from what Blake's studio
+# rejects takes for: wrong road lines, arrows or road conditions, objects that
+# don't belong in the scene, and unrealistic lighting. road_markings is the
+# default; the second noted check is added once Blake's bad takes show which
+# flaw comes up most, and only after its issue type is in the contract.
+# extra_finger is the last fallback. exposure_flicker is a background check.
 checks:
   - exposure_flicker
   - road_markings
 
-# exposure_flicker is measured by code, not the model. The threshold is the mean
-# brightness change between consecutive frames, 0-255, that starts a spike.
+# exposure_flicker is measured by code, not the model, on every take. No flicker
+# is added to any take; it's demoed only if Blake's clips show a jump. The
+# threshold is the mean brightness change between consecutive frames, 0-255,
+# that starts a spike. Both settings are a first guess until they're checked
+# against the worker's brightness series (#5).
 flicker_threshold: 8.0
 # A spike must come back within this many frames to count as flicker. A change
 # that stays longer (a cut, the car driving into shadow) is not reported.
@@ -26,12 +33,13 @@ flicker_return_frames: 6
 approvers:
   - "Creative director"
 
-# One entry per issue type. The order of the entries is rubric order: prompt-fix
-# appends fixes in it, and the card counts follow it. Within an entry, prompt-fix
-# appends one line per label, in the order Don't include, Add, Make sure, and
-# skips a line version 1 already contains.
-# The fixed takes (4-2r1, 2-3r1) are generated from exactly this text, so a
-# change here means regenerating them.
+# One entry per enabled check, written from the difference between Blake's bad
+# and good prompts; a fallback may keep an entry ready. The order of the entries
+# is rubric order: prompt-fix appends fixes in it, and the card counts follow it.
+# Within an entry, prompt-fix appends one line per label, in the order Don't
+# include, Add, Make sure, and skips a line version 1 already contains. The fixed
+# takes are generated from exactly this text, so a change here means
+# regenerating them.
 fix_library:
   exposure_flicker:
     dont_include: "flicker, strobing or sudden jumps in brightness."

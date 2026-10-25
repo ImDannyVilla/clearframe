@@ -42,26 +42,29 @@ def table_rows(section):
     return rows
 
 
-def counts_text(card, issues):
-    """The counts as a card builder would write them, from (state, issue_type) pairs."""
+def counts_text(rubric, issues):
+    """The counts as a card builder would write them, from (state, issue_type) pairs, in rubric order."""
+    card = rubric["card"]
     parts = []
     for state, forms in card["state_labels"].items():
-        for issue_type, category in card["category_labels"].items():
+        for issue_type in rubric["fix_library"]:
             count = issues.count((state, issue_type))
             if count:
                 label = forms["one"] if count == 1 else forms["many"]
+                category = card["category_labels"][issue_type]
                 parts.append(card["count"].format(count=count, state=label, category=category))
     return card["count_separator"].join(parts)
 
 
-def shot_card_text(card, shot, expected_takes, takes, link):
+def shot_card_text(rubric, shot, expected_takes, takes, link):
     """takes: (take_id, status, issues) for every final original take, in take order."""
+    card = rubric["card"]
     shot_card = card["shot_card"]
     lines = [shot_card["header"].format(shot=shot, reviewed=len(takes), expected_takes=expected_takes)]
     for take_id, status, issues in takes:
         if status == "clean":
             continue
-        counts = counts_text(card, issues)
+        counts = counts_text(rubric, issues)
         template = shot_card["take"] if counts else shot_card["take_no_counts"]
         lines.append(template.format(take_id=take_id, status=card["status_labels"][status], counts=counts))
     clean = [take_id for take_id, status, _ in takes if status == "clean"]
@@ -86,7 +89,10 @@ class RubricMatchesContractTest(unittest.TestCase):
         from_contract = {row[0].strip("`"): row[2] for row in rows if row[0].startswith("`")}
         self.assertEqual(tuple(from_contract), rubric_loader.ISSUE_TYPES)
         self.assertEqual(self.card["category_labels"], from_contract)
-        self.assertEqual(tuple(self.rubric["fix_library"]), rubric_loader.ISSUE_TYPES)
+
+    def test_every_enabled_check_has_a_fix(self):
+        for check in self.rubric["checks"]:
+            self.assertTrue(rubric_loader.fix_lines(self.rubric, check))
 
     def test_status_and_state_labels_match_the_contract(self):
         labels = {}
@@ -139,7 +145,8 @@ class FixLibraryTest(unittest.TestCase):
 
 class CardWordingTest(unittest.TestCase):
     def setUp(self):
-        self.card = rubric_loader.load()["card"]
+        self.rubric = rubric_loader.load()
+        self.card = self.rubric["card"]
         section = contract_section("Slack card")
         self.samples = re.findall(r"```text\n(.*?)\n```", section, re.DOTALL)
         self.assertEqual(len(self.samples), 2)
@@ -153,7 +160,7 @@ class CardWordingTest(unittest.TestCase):
             ("4-5", "flagged", [("measured", "exposure_flicker")]),
             ("4-6", "clean", []),
         ]
-        text = shot_card_text(self.card, 4, 6, takes, "http://127.0.0.1:8090/shot/4")
+        text = shot_card_text(self.rubric, 4, 6, takes, "http://127.0.0.1:8090/shot/4")
         self.assertEqual(text, self.samples[0])
 
     def test_retake_card_matches_the_contract_sample(self):
@@ -174,7 +181,7 @@ class CardWordingTest(unittest.TestCase):
             ("dismissed", "road_markings"),
         ]
         self.assertEqual(
-            counts_text(self.card, issues),
+            counts_text(self.rubric, issues),
             "2 measured anomalies (exposure), 1 candidate note (road markings)",
         )
 
@@ -183,7 +190,7 @@ class CardWordingTest(unittest.TestCase):
 
     def test_shot_card_with_no_clean_takes(self):
         takes = [("2-1", "flagged", [("confirmed", "extra_finger")])]
-        text = shot_card_text(self.card, 2, 6, takes, "http://127.0.0.1:8090/shot/2")
+        text = shot_card_text(self.rubric, 2, 6, takes, "http://127.0.0.1:8090/shot/2")
         self.assertEqual(text.splitlines()[1:3], ["2-1: flagged · 1 confirmed note (extra finger)", "Clean: none"])
 
 
@@ -233,6 +240,21 @@ class LoaderTest(unittest.TestCase):
 
     def test_refuses_an_unknown_check(self):
         self.assertRefused(self.text.replace("  - road_markings\n", "  - lens_flare\n"), "unknown issue type")
+
+    def test_refuses_an_enabled_check_without_a_fix(self):
+        text = self.text.replace("  - road_markings\n", "  - road_markings\n  - extra_finger\n")
+        start = self.text.index("  extra_finger:\n    ")
+        end = self.text.index("\n\nfix_labels:")
+        self.assertRefused(text.replace(self.text[start:end], ""), "no entry for the enabled check extra_finger")
+
+    def test_a_fallback_needs_no_fix_until_enabled(self):
+        start = self.text.index("  extra_finger:\n    ")
+        end = self.text.index("\n\nfix_labels:")
+        rubric = rubric_loader.validate(rubric_loader.parse(self.text[:start].rstrip("\n") + self.text[end:]))
+        self.assertNotIn("extra_finger", rubric["fix_library"])
+
+    def test_refuses_a_fix_for_an_unknown_issue_type(self):
+        self.assertRefused(self.text.replace("  extra_finger:\n    ", "  lens_flare:\n    "), "unknown issue type")
 
     def test_refuses_checks_out_of_rubric_order(self):
         text = self.text.replace("  - exposure_flicker\n  - road_markings\n", "  - road_markings\n  - exposure_flicker\n")
