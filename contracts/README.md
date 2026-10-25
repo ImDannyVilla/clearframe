@@ -296,7 +296,7 @@ Version 1's hash is `sha256:ee4aa7f4a4c28994d974159b541e8f8b372c29b03ade2ad7098b
 3. `prompt_version` is the take's latest version, and `prompt_hash` equals its stored hash.
 4. The hash recomputed from the stored text still matches.
 
-**Sample queue file:** [`samples/queue-4-2-v2.json`](samples/queue-4-2-v2.json), written as `approved_generation_queue/4-2-v2.json`.
+**Sample queue file:** [`samples/queue-4-2-v2.json`](samples/queue-4-2-v2.json), written as `approved_generation_queue/4-2-v2.json`. Its `schema` is `clearframe.queue/1`; raise the number on any breaking change.
 
 **Queue rules**
 

@@ -40,6 +40,11 @@ Setup and run commands for the GB10 are in the [GB10 cheat sheet](docs/gb10-chea
 
 ## Rules
 
-- Never commit video, frames, `.env`, tokens or the database. `.gitignore` blocks them.
+Agents and people follow [`AGENTS.md`](AGENTS.md). The checks enforce what they can:
+
+- `make verify` must pass. CI runs it on every push and pull request.
+- Run `scripts/install-hooks.sh` once per clone: the pre-commit hook scans for secrets and runs `make check`, and the pre-push hook runs `make verify`.
+- Never commit video, frames, `.env`, tokens or the database. `.gitignore` blocks them, and `make check` fails if one gets in anyway.
 - A change to the contract goes in a pull request that edits `contracts/README.md`, and a teammate looks before it merges.
 - Small pull requests, merged often, with a normal merge so the history shows the day.
+- Every non-obvious mistake becomes a lesson in `.agents/lessons/`, and a check when it can be one.
