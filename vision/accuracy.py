@@ -88,7 +88,8 @@ def run(args: argparse.Namespace) -> int:
         raise AccuracyError(f"no takes like 4-2.mp4 in {args.takes} for the shots and takes asked")
     base = review.Settings(
         runs=args.runs, min_agree=args.min_agree, sparse_frames=args.sparse_frames,
-        dense_frames=args.dense_frames, max_images=args.max_images, parallel=args.parallel, strict=False,
+        dense_frames=args.dense_frames, max_images=args.max_images, parallel=args.parallel,
+        max_tokens=args.max_tokens, strict=False,
     )
     setups = [replace(base, mode=mode, thinking=thinking).validate()
               for mode in args.modes for thinking in args.thinking]
@@ -115,10 +116,11 @@ def run(args: argparse.Namespace) -> int:
                     take_id, frames_dir, count, fps, [args.check], model, settings, workdir=Path(scratch) / "work"
                 )
                 checked = result.checks[args.check]
+                cut_off = sum(1 for reply in checked.replies if reply.get("finish_reason") == "length")
                 record["takes"].append({
                     "take_id": take_id, "fps": fps, "frames": count, "seconds": result.seconds,
                     "requests": checked.requests, "replies": len(checked.replies),
-                    "unanswered": checked.unanswered, "unparsed": checked.unparsed, "errors": checked.errors,
+                    "unanswered": checked.unanswered, "unparsed": checked.unparsed, "cut_off": cut_off, "errors": checked.errors,
                     "sparse_notes": checked.sparse_notes, "candidates": checked.candidates,
                     "vision": result.vision, "reply_log": checked.replies,
                 })
@@ -128,7 +130,8 @@ def run(args: argparse.Namespace) -> int:
                 notes = len(checked.candidates)
                 print(
                     f"{name} {take_id}: {notes} note{'' if notes == 1 else 's'}{f' ({spans})' if spans else ''}, "
-                    f"{result.seconds} s, {checked.unparsed} of {len(checked.replies)} replies unparsed, "
+                    f"{result.seconds} s, {checked.unparsed} of {len(checked.replies)} replies unparsed "
+                    f"({cut_off} cut off at max_tokens), "
                     f"{len(checked.errors)} errors",
                     flush=True,
                 )
@@ -329,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     run_cmd.add_argument("--dense-frames", type=int, default=review.Settings.dense_frames)
     run_cmd.add_argument("--max-images", type=int, default=review.Settings.max_images,
                          help="images per request, from the server's --limit-mm-per-prompt")
+    run_cmd.add_argument("--max-tokens", type=int, help="reply token limit; default 8192 with thinking on, 1024 off")
     run_cmd.add_argument("--parallel", type=int, default=review.Settings.parallel, help="requests in flight at once")
     run_cmd.add_argument("--env-file", type=Path, help="vision.env with VISION_URL, VISION_API_KEY, VISION_MODEL")
     run_cmd.add_argument("--fake", type=Path, help="answer from a sample file instead of the model, for a dry run")

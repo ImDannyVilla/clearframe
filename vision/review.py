@@ -42,6 +42,8 @@ class Question:
     flaw_answer: str
     # What a dense pass or a grid crops to, and how the prompt says so; None keeps whole frames.
     crop: Crop | None
+    # The few words after a flaw answer in the prompt's example reply.
+    example_note: str = "wrong"
     crop_note: str = ""
 
 
@@ -53,6 +55,7 @@ QUESTIONS = {
         not_visible="If no arrow is visible in the car's lane in a frame, answer yes for that frame.",
         flaw_answer="no",
         crop=ROAD_CROP,
+        example_note="the arrow points back toward the camera",
         crop_note="Each frame is cropped to the road.",
     ),
     "extra_finger": Question(
@@ -60,6 +63,7 @@ QUESTIONS = {
         not_visible="If no hand is visible in a frame, answer yes for that frame.",
         flaw_answer="no",
         crop=None,
+        example_note="the left hand has six fingers",
     ),
 }
 
@@ -127,25 +131,40 @@ THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 ANSWER_LINE = re.compile(
     r"(?:frame\s*)?(\d+)(?:\s*\([^)]*\))?\s*[:.)\]-]\s*(yes|no)\b[\s.,;:!\-–—]*(.*)", re.IGNORECASE
 )
+# An answer with its frame number left off, as Qwen sometimes writes them: ". no - wrong way".
+UNNUMBERED_LINE = re.compile(r"[:.)\]-]?\s*(yes|no)\b[\s.,;:!\-–—]*(.*)", re.IGNORECASE)
 
 
 def parse_answers(text: str, count: int) -> list[tuple[str, str]] | None:
-    """[(yes or no, the model's words)] for frames 1 to `count`, or None if the reply doesn't say exactly that."""
+    """[(yes or no, the model's words)] for frames 1 to `count`, or None if the reply doesn't say exactly that.
+
+    Frames numbered 0 to count-1 are read as 1 to count, and a reply with no
+    frame numbers at all is read in order, but only when it has exactly one
+    answer per frame.
+    """
     text = THINK.sub("", text)
     if "<think>" in text.lower() and "</think>" not in text.lower():
         return None  # cut off while thinking
     if "</think>" in text.lower():
         text = re.split(r"</think>", text, flags=re.IGNORECASE)[-1]
     answers: dict[int, tuple[str, str]] = {}
+    unnumbered: list[tuple[str, str]] = []
     for raw in text.splitlines():
         line = re.sub(r"^\s*(?:[-*•>]\s+)?", "", raw).replace("**", "").replace("`", "").strip()
         match = ANSWER_LINE.fullmatch(line)
         if not match:
+            loose = UNNUMBERED_LINE.fullmatch(line)
+            if loose:
+                unnumbered.append((loose.group(1).lower(), loose.group(2).strip()))
             continue
         number = int(match.group(1))
         if number in answers:
             return None
         answers[number] = (match.group(2).lower(), match.group(3).strip())
+    if not answers:
+        return unnumbered if len(unnumbered) == count else None
+    if sorted(answers) == list(range(count)):
+        return [answers[number] for number in range(count)]
     if sorted(answers) != list(range(1, count + 1)):
         return None
     return [answers[number] for number in range(1, count + 1)]
@@ -213,12 +232,22 @@ def _prompt(question: Question, mode: str, count: int, cropped: bool) -> tuple[s
         intro = f"This video is {count} frames from one AI-generated video take, in order, numbered 1 to {count}.{crop}"
     else:
         intro = f"These are {count} frames from one AI-generated video take, in order, numbered 1 to {count}.{crop}"
+    example = "\n".join(_example_lines(question, count))
     ask = (
         f"{question.text} {question.not_visible}\n"
         f"Reply with exactly {count} lines, one per frame, in order, and nothing else. "
-        "Write each line as `<frame number>: yes` or `<frame number>: no - <a few words on what is wrong>`."
+        f"Start each line with the frame's number, 1 to {count}, then `: yes`, or `: no - ` and a few words "
+        f"on what is wrong. For example:\n{example}"
     )
     return intro, ask
+
+
+def _example_lines(question: Question, count: int) -> list[str]:
+    """A reply in the format asked for, for the first frames (at most 3), with the second frame noted."""
+    lines = [f"{number}: yes" for number in range(1, min(count, 3) + 1)]
+    if count >= 2:
+        lines[1] = f"2: {question.flaw_answer} - {question.example_note}"
+    return lines
 
 
 def _image(path: Path) -> dict:
@@ -311,7 +340,10 @@ def run_pass(
             result.replies.append({**record, "error": str(reply)})
             continue
         answers = parse_answers(reply.text, len(request.frames))
-        result.replies.append({**record, "seconds": reply.seconds, "parsed": answers is not None, "text": reply.text})
+        result.replies.append({
+            **record, "seconds": reply.seconds, "finish_reason": reply.finish_reason,
+            "parsed": answers is not None, "text": reply.text,
+        })
         if answers is None:
             result.unparsed += 1
             continue
