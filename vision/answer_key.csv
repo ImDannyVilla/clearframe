@@ -1,1 +1,3 @@
 take_id,issue_type,frame_start,frame_end,t_start,t_end,description
+4-2,road_markings,48,64,,,right-lane arrow hooks back toward the camera and the left-lane arrow points sideways (Blake's rejection; contract sample result-4-2)
+4-2r1,none,,,,,
