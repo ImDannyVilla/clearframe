@@ -7,9 +7,9 @@ exactly as contracts/README.md "The result file" says:
 1. A new render whose size has held for one poll is picked up once.
 2. Revision 1 is written with every enabled check `running`.
 3. ffmpeg decodes every frame. Code measures mean brightness on every frame
-   and finds exposure flicker; the reviewer answers the noted checks on a sparse
-   pass, then on dense windows (cropped to the road for road checks) around
-   anything code flagged or the sparse pass noted.
+   and finds exposure flicker. Danny's reviewer (`vision.review`, #6) answers
+   the noted checks on a sparse pass, then on dense windows (cropped to the
+   road for road checks) around anything code flagged or the sparse pass noted.
 4. Evidence frames and brightness.json go to `<results>/frames/<take_id>/`,
    then the final revision. Every JSON file is written .tmp, then renamed.
 
@@ -36,18 +36,19 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rubric import rubric as rubric_loader  # noqa: E402
+from vision.review import QUESTIONS  # noqa: E402
 from worker import flicker, media, review, takes  # noqa: E402
 
 SCHEMA = "clearframe.result/1"
 MEASURED_CHECKS = ("exposure_flicker",)
-NOTED_CHECKS = ("road_markings", "extra_finger")
-ROAD_CHECKS = ("road_markings",)
+NOTED_CHECKS = tuple(QUESTIONS)  # the checks the reviewer has a question for
 
 # The only error messages a result file carries: short, fixed, never model output.
 ERR_RENDER = "render unreadable"
 ERR_FRAMES = "frame extraction failed"
 ERR_NO_REVIEWER = "reviewer not available"
 ERR_REVIEWER = "reviewer failed"
+ERR_NO_ANSWER = "the reviewer gave no usable answer"
 ERR_UNKNOWN = "no worker check for this issue type"
 
 
@@ -59,20 +60,12 @@ class Config:
     rubric_path: Path
     poll_seconds: float = 2.0
     parallel: int = 3
-    sparse_step: int | None = None  # frames between sparse samples; default fps/3
-    dense_pad: int | None = None  # frames added each side of a moment; default sparse_step
-    road_crop: str = "iw:ih/2:0:ih/2"  # ffmpeg crop: the lower half, where the road is
-    evidence_limit: int = 8
+    evidence_limit: int = 8  # most evidence frames kept per flicker spike
     commit: str | None = None
 
     @classmethod
     def from_env(cls) -> "Config":
         env = os.environ.get
-
-        def optional_int(name: str) -> int | None:
-            value = env(name)
-            return int(value) if value else None
-
         return cls(
             input_dir=Path(env("CLEARFRAME_INPUT", "/input")),
             results_dir=Path(env("CLEARFRAME_RESULTS", "/results")),
@@ -80,9 +73,6 @@ class Config:
             rubric_path=Path(env("CLEARFRAME_RUBRIC", str(ROOT / "rubric" / "rubric.yaml"))),
             poll_seconds=float(env("POLL_SECONDS", "2")),
             parallel=int(env("WORKER_PARALLEL", "3")),
-            sparse_step=optional_int("SPARSE_STEP"),
-            dense_pad=optional_int("DENSE_PAD"),
-            road_crop=env("ROAD_CROP", "iw:ih/2:0:ih/2"),
             evidence_limit=int(env("EVIDENCE_LIMIT", "8")),
             commit=env("WORKER_COMMIT") or git_commit(ROOT),
         )
@@ -171,7 +161,7 @@ class Take:
         return paths
 
 
-def review_take(take_id: str, render_path: Path, config: Config, reviewer_loader=review.load_reviewer) -> dict:
+def review_take(take_id: str, render_path: Path, config: Config, model_loader=review.load_model) -> dict:
     """Review one take and write its revisions. Returns the final result."""
     parsed = takes.parse_take_id(take_id)
     if parsed is None:
@@ -253,18 +243,15 @@ def review_take(take_id: str, render_path: Path, config: Config, reviewer_loader
                     "value": spike.value,
                     "threshold": policy["flicker_threshold"],
                     "unit": flicker.UNIT,
-                    "evidence": take.evidence(review.spread(spike.evidence_frames, config.evidence_limit)),
+                    "evidence": take.evidence(spread(spike.evidence_frames, config.evidence_limit)),
                 })
 
+        noted = [check for check in checks if check in NOTED_CHECKS]
         for check in checks:
-            if check in MEASURED_CHECKS:
-                continue
-            if check not in NOTED_CHECKS:
+            if check not in MEASURED_CHECKS and check not in NOTED_CHECKS:
                 failed[check] = ERR_UNKNOWN
-                continue
-            error = _noted_check(take, check, spikes, shot_row, reviewer_loader)
-            if error:
-                failed[check] = error
+        if noted:
+            failed.update(_noted_checks(take, noted, spikes, model_loader))
         return _finish(take, failed)
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -290,109 +277,50 @@ def _finish(take: Take, failed: dict[str, str]) -> dict:
     return take.result
 
 
-def _noted_check(take: Take, check: str, spikes: list, shot_row: dict, reviewer_loader) -> str | None:
-    """Ask the reviewer about one check; add candidate notes. Returns an error message or None."""
-    config = take.config
+def _noted_checks(take: Take, checks: list[str], spikes: list, model_loader) -> dict[str, str]:
+    """Run Danny's reviewer on every noted check at once; add its candidate notes.
+
+    Returns {check: fixed error message} for the checks that didn't finish.
+    """
     try:
-        reviewer = reviewer_loader()
+        model = model_loader()
     except review.ReviewerUnavailable:
-        return ERR_NO_REVIEWER
+        return {check: ERR_NO_REVIEWER for check in checks}
     assert take.frames_dir is not None
-    step = config.sparse_step or max(1, round(take.fps / 3))
-    pad = config.dense_pad if config.dense_pad is not None else step
-    context = {
-        "take_id": take.take_id,
-        "shot": take.shot,
-        "fps": take.fps,
-        "description": shot_row.get("description", ""),
-    }
-    vision = take.result["vision"]
-    started = time.monotonic()
     try:
-        # Sparse pass over the whole take.
-        sparse_frames = list(range(0, take.frame_count, step))
-        answer = reviewer(check, "sparse", _frame_paths(take.frames_dir, sparse_frames), context)
-        _note_model(vision, answer)
-        vision["sparse_frames_sent"] += int(answer.get("frames_sent", len(sparse_frames)))
-        sparse_moments = []
-        for note in answer.get("notes", []):
-            for run in review.runs_of(note["frames"], step):
-                sparse_moments.append((run, note["model_note"]))
-
-        # Dense windows around every sparse note and every measured spike.
-        moments = [(run[0], run[-1]) for run, _ in sparse_moments]
-        moments += [(s.frame_start, s.frame_end) for s in spikes]
-        windows = _merge([review.window(a, b, pad, take.frame_count) for a, b in moments])
-        found: list[dict] = []
-        for first, last in windows:
-            frames = list(range(first, last + 1))
-            paths = _frame_paths(take.frames_dir, frames)
-            if check in ROAD_CHECKS:
-                crop_dir = take.frames_dir.parent / "crop" / f"{first:06d}"
-                media.crop_frames(take.frames_dir, first, last, crop_dir, config.road_crop)
-                paths = _frame_paths(crop_dir, frames)
-            dense = reviewer(check, "dense", paths, context)
-            _note_model(vision, dense)
-            vision["dense_windows"] += 1
-            vision["dense_frames_sent"] += int(dense.get("frames_sent", len(frames)))
-            dense_notes = [
-                (run, note["model_note"])
-                for note in dense.get("notes", [])
-                for run in review.runs_of(note["frames"], 2)
-            ]
-            for run, text in dense_notes:
-                found.append(_candidate(take, check, "dense", run, text))
-            if not dense_notes:
-                # The dense pass saw nothing: keep the sparse notes in this window as
-                # they were. A person confirms or dismisses them on the evidence page.
-                for run, text in sparse_moments:
-                    if first <= run[0] <= last:
-                        found.append(_candidate(take, check, "sparse", run, text))
-    except Exception:  # noqa: BLE001 - any reviewer failure ends the check in error
+        result = review.review_take(
+            take_id=take.take_id,
+            frames_dir=take.frames_dir,
+            frame_count=take.frame_count,
+            fps=take.fps,
+            checks=checks,
+            model=model,
+            flagged=[(spike.frame_start, spike.frame_end) for spike in spikes],
+            workdir=take.frames_dir.parent / "vision",
+        )
+    except Exception:  # noqa: BLE001 - any reviewer failure ends the checks in error
         traceback.print_exc()
-        return ERR_REVIEWER
-    finally:
-        vision["seconds"] = round(vision["seconds"] + time.monotonic() - started, 1)
+        return {check: ERR_REVIEWER for check in checks}
 
-    seen = set()
-    for item in sorted(found, key=lambda c: (c["frame_start"], c["frame_end"])):
-        key = (item["frame_start"], item["frame_end"], item["model_note"])
-        if key not in seen:
-            seen.add(key)
-            take.result["candidates"].append(item)
-    return None
-
-
-def _note_model(vision: dict, answer: dict) -> None:
-    if answer.get("model") and not vision["model"]:
-        vision["model"] = answer["model"]
-
-
-def _frame_paths(directory: Path, frames: list[int]) -> list[tuple[int, Path]]:
-    return [(number, directory / f"{number:06d}.jpg") for number in frames]
-
-
-def _merge(windows: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    merged: list[list[int]] = []
-    for first, last in sorted(windows):
-        if merged and first <= merged[-1][1] + 1:
-            merged[-1][1] = max(merged[-1][1], last)
-        else:
-            merged.append([first, last])
-    return [(a, b) for a, b in merged]
-
-
-def _candidate(take: Take, check: str, pass_name: str, run: list[int], text: str) -> dict:
+    # The reviewer names evidence frames; the worker copies them into results/.
+    take.evidence(result.evidence_frames)
+    take.result["candidates"] = result.candidates
+    take.result["vision"] = result.vision
     return {
-        "issue_type": check,
-        "pass": pass_name,
-        "frame_start": run[0],
-        "frame_end": run[-1],
-        "t_start": flicker.seconds(run[0], take.fps),
-        "t_end": flicker.seconds(run[-1], take.fps),
-        "model_note": text,
-        "evidence": take.evidence(review.spread(run, take.config.evidence_limit)),
+        check: ERR_NO_ANSWER
+        for check, check_review in result.checks.items()
+        if check_review.state != "done"
     }
+
+
+def spread(frames: list[int], limit: int) -> list[int]:
+    """At most `limit` frames, evenly spread and always keeping the first and last."""
+    if len(frames) <= limit:
+        return list(frames)
+    if limit == 1:
+        return [frames[0]]
+    step = (len(frames) - 1) / (limit - 1)
+    return sorted({frames[round(i * step)] for i in range(limit)})
 
 
 class Watcher:

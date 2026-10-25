@@ -7,7 +7,7 @@ The host review worker (Jason, #5): takes in from `~/clearframe-input/`, every f
 | `main.py` | The poll loop and one take's review: revision 1, frames, checks, evidence, final revision |
 | `flicker.py` | The flicker rule: a spike past `flicker_threshold` that returns within `flicker_return_frames` |
 | `media.py` | ffprobe, the per-frame brightness series, frame extraction and road crops |
-| `review.py` | The reviewer interface the worker calls, and the answers-file reviewer for tests |
+| `review.py` | The bridge to Danny's reviewer (`vision.review.review_take`) and which model it uses |
 | `takes.py` | Take IDs, `shot_list.csv` and `generation_log.csv` |
 
 ## Run it
@@ -27,12 +27,12 @@ python3 worker/main.py --once   # review what's in renders/ now, then exit
 | `CLEARFRAME_RUBRIC` | `rubric/rubric.yaml` | Read again for every take |
 | `POLL_SECONDS` | `2` | How often `renders/` is checked |
 | `WORKER_PARALLEL` | `3` | Takes reviewed at once; they share one model server |
-| `SPARSE_STEP` | fps ÷ 3 (8 at 24 fps) | Frames between sparse-pass samples |
-| `DENSE_PAD` | `SPARSE_STEP` | Frames added on each side of a flagged moment |
-| `ROAD_CROP` | `iw:ih/2:0:ih/2` | ffmpeg crop for road checks' dense windows: the lower half |
-| `EVIDENCE_LIMIT` | `8` | Most evidence frames kept per anomaly or note |
-| `VISION_ANSWERS` | unset | A canned answers file instead of the model, for tests and dry runs |
-| `FFMPEG`, `FFPROBE` | from `PATH` | The binaries |
+| `EVIDENCE_LIMIT` | `8` | Most evidence frames kept per flicker spike |
+| `VISION_URL`, `VISION_MODEL`, `VISION_API_KEY` | from `vision.env` | The model server, read by `vision.model.VisionClient` |
+| `VISION_ANSWERS` | unset | A fake-model answers file (like `vision/samples/answers-4-2.json`) instead of the model, for dry runs |
+| `FFMPEG`, `FFPROBE` | from `PATH` | The worker's binaries; `vision/` uses `ffmpeg` from `PATH` |
+
+How the reviewer asks (frames, grid or video, thinking, votes, sparse and dense sizes) is set in `vision.review.Settings`, which #6 owns.
 
 ## How a take is reviewed
 
@@ -40,11 +40,10 @@ python3 worker/main.py --once   # review what's in renders/ now, then exit
 2. Revision 1 goes out with every enabled check `running`.
 3. ffmpeg decodes every frame. Code takes each frame's mean brightness (0–255) and writes `frames/<take_id>/brightness.json`.
 4. `exposure_flicker` is measured on that series. Evidence is the baseline frame plus every frame off it.
-5. Each noted check (`road_markings`, `extra_finger`) goes to the reviewer: a sparse pass over every `SPARSE_STEP`th frame, then dense windows of consecutive frames, cropped to the road for road checks, around every sparse note and every flicker spike. Dense notes replace the sparse note in their window; if the dense pass sees nothing there, the sparse note stays for a person to confirm or dismiss.
-6. The final revision: every check `done` or `error`, with one fixed message per error (`road_markings: reviewer not available`), never model output.
+5. The noted checks (`road_markings`, and `extra_finger` if enabled) go to Danny's `vision.review.review_take()` with every extracted frame and the flicker spikes as `flagged`. It runs the sparse pass, the dense windows around every sparse note and every spike, and the votes, and returns the candidates and the `vision` block in the contract's shape. The worker copies the evidence frames it names into `results/`.
+6. The final revision: every check `done` or `error`, with one fixed message per error, never model output:
+   - `reviewer not available`: no `VISION_URL` and `VISION_MODEL`, and no `VISION_ANSWERS`
+   - `the reviewer gave no usable answer`: the model server failed, or its replies didn't parse
+   - `reviewer failed`: anything else went wrong in the reviewer (the traceback goes to the worker's log)
 
-Code sets every frame range, timestamp and evidence path. The reviewer only says which of the frames it was sent show the problem.
-
-## The reviewer interface
-
-Danny's `vision/reviewer.py` (#6) provides `review(check, pass_name, frames, context)`. The full signature is in `review.py`'s docstring. Until it exists, noted checks end in `error`, which keeps takes at `review_pending`; set `VISION_ANSWERS` for a dry run.
+Code sets every frame range, timestamp and evidence path, here and in `vision/`. The model only answers yes or no per frame.
