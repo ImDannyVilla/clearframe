@@ -48,8 +48,13 @@ class AnswerKeyTest(unittest.TestCase):
         self.assertEqual(key["4-3"][0].issue_type, "out_of_place_object")
         self.assertEqual(key["4-3"][0].span(fps=24, frame_count=120), (36, 48))
 
-    def test_the_header_in_the_repo_loads(self):
-        self.assertEqual(accuracy.load_answer_key(accuracy.ANSWER_KEY), {})
+    def test_the_answer_key_in_the_repo_loads(self):
+        key = accuracy.load_answer_key(accuracy.ANSWER_KEY)
+        for take_id, flaws in key.items():
+            with self.subTest(take_id=take_id):
+                self.assertRegex(take_id, accuracy.TAKE_ID)
+                for flaw in flaws:
+                    self.assertTrue(flaw.frames or flaw.seconds)
 
     def test_refuses_rows_it_cant_score(self):
         for rows, message in (

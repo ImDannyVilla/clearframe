@@ -14,8 +14,25 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from rubric import rubric as rubric_loader  # noqa: E402
+from worker import flicker  # noqa: E402
 
 CONTRACT = (ROOT / "contracts" / "README.md").read_text(encoding="utf-8")
+
+# Mean brightness (0-255) of every frame of Blake's Shot 3 flicker clip, from the
+# worker's brightness.json on the GB10. It dims three times, for 16, 6 and 15 frames.
+SHOT_3_FLICKER = [
+    97.3, 98.6, 99.0, 99.4, 99.4, 99.8, 99.9, 100.3, 100.3, 100.7, 100.7, 101.2,
+    101.2, 101.4, 101.3, 101.7, 101.6, 101.7, 101.5, 101.8, 101.7, 101.9, 101.8, 102.0,
+    101.7, 100.9, 99.7, 99.1, 98.1, 97.2, 96.2, 85.4, 68.6, 42.2, 34.3, 33.8,
+    33.5, 33.1, 33.1, 33.1, 33.3, 33.0, 33.0, 33.0, 46.8, 65.7, 83.5, 93.9,
+    96.8, 97.0, 97.7, 97.7, 98.0, 97.7, 97.9, 97.6, 97.5, 96.0, 80.9, 47.1,
+    34.2, 34.8, 63.8, 86.8, 96.9, 98.5, 98.7, 99.0, 98.7, 98.6, 98.1, 98.0,
+    97.3, 96.4, 95.4, 79.7, 60.5, 34.7, 33.9, 33.5, 33.1, 32.4, 32.1, 31.9,
+    31.9, 31.6, 45.1, 65.4, 79.2, 86.1, 89.2, 89.7, 90.2, 90.1, 90.8, 91.2,
+    91.8, 91.9, 92.5, 92.9, 93.2, 93.0, 93.8, 94.2, 94.7, 95.0, 95.5, 95.7,
+    95.9, 95.8, 96.2, 96.0, 95.9, 95.5, 95.6, 95.9, 95.6, 95.2, 95.1, 95.2,
+    95.1,
+]
 
 
 def load_sample(name):
@@ -109,6 +126,12 @@ class RubricMatchesContractTest(unittest.TestCase):
     def test_flicker_settings(self):
         self.assertIsInstance(self.rubric["flicker_threshold"], float)
         self.assertIsInstance(self.rubric["flicker_return_frames"], int)
+
+    def test_flicker_settings_catch_every_dim_out_in_shot_3(self):
+        spikes = flicker.detect(
+            SHOT_3_FLICKER, self.rubric["flicker_threshold"], self.rubric["flicker_return_frames"]
+        )
+        self.assertEqual([(s.frame_start, s.frame_end) for s in spikes], [(31, 46), (58, 63), (75, 89)])
 
     def test_sample_approver_is_allowed(self):
         approver = load_sample("queue-4-2-v2.json")["approval"]["approver"]
