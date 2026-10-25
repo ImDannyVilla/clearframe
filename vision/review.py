@@ -36,7 +36,9 @@ ROAD_CROP: Crop = (0.0, 0.45, 1.0, 0.55)
 @dataclass(frozen=True)
 class Question:
     text: str
-    # Said after the question, so frames without the thing asked about aren't noted.
+    # Said after the question: frames without the thing asked about are answered
+    # `none`, which is never a flaw. Telling the model to answer yes for them
+    # didn't hold: Qwen answered no with "the arrow is not visible".
     not_visible: str
     # The answer that means the flaw is there.
     flaw_answer: str
@@ -52,7 +54,7 @@ class Question:
 QUESTIONS = {
     "road_markings": Question(
         text="Do the arrows in the car's lane point in its direction of travel? Answer yes or no for each frame.",
-        not_visible="If no arrow is visible in the car's lane in a frame, answer yes for that frame.",
+        not_visible="If no arrow is visible in the car's lane in a frame, answer none for that frame.",
         flaw_answer="no",
         crop=ROAD_CROP,
         example_note="the arrow points back toward the camera",
@@ -60,7 +62,7 @@ QUESTIONS = {
     ),
     "extra_finger": Question(
         text="Does each hand have exactly five fingers in every frame?",
-        not_visible="If no hand is visible in a frame, answer yes for that frame.",
+        not_visible="If no hand is visible in a frame, answer none for that frame.",
         flaw_answer="no",
         crop=None,
         example_note="the left hand has six fingers",
@@ -129,14 +131,14 @@ class ReviewError(RuntimeError):
 
 THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 ANSWER_LINE = re.compile(
-    r"(?:frame\s*)?(\d+)(?:\s*\([^)]*\))?\s*[:.)\]-]\s*(yes|no)\b[\s.,;:!\-–—]*(.*)", re.IGNORECASE
+    r"(?:frame\s*)?(\d+)(?:\s*\([^)]*\))?\s*[:.)\]-]\s*(yes|none|no)\b[\s.,;:!\-–—]*(.*)", re.IGNORECASE
 )
 # An answer with its frame number left off, as Qwen sometimes writes them: ". no - wrong way".
-UNNUMBERED_LINE = re.compile(r"[:.)\]-]?\s*(yes|no)\b[\s.,;:!\-–—]*(.*)", re.IGNORECASE)
+UNNUMBERED_LINE = re.compile(r"[:.)\]-]?\s*(yes|none|no)\b[\s.,;:!\-–—]*(.*)", re.IGNORECASE)
 
 
 def parse_answers(text: str, count: int) -> list[tuple[str, str]] | None:
-    """[(yes or no, the model's words)] for frames 1 to `count`, or None if the reply doesn't say exactly that.
+    """[(yes, no or none, the model's words)] for frames 1 to `count`, or None if the reply doesn't say exactly that.
 
     Frames numbered 0 to count-1 are read as 1 to count, and a reply with no
     frame numbers at all is read in order, but only when it has exactly one
@@ -236,17 +238,19 @@ def _prompt(question: Question, mode: str, count: int, cropped: bool) -> tuple[s
     ask = (
         f"{question.text} {question.not_visible}\n"
         f"Reply with exactly {count} lines, one per frame, in order, and nothing else. "
-        f"Start each line with the frame's number, 1 to {count}, then `: yes`, or `: no - ` and a few words "
-        f"on what is wrong. For example:\n{example}"
+        f"Start each line with the frame's number, 1 to {count}, then `: yes`, `: none`, or `: no - ` and a few "
+        f"words on what is wrong. For example:\n{example}"
     )
     return intro, ask
 
 
 def _example_lines(question: Question, count: int) -> list[str]:
-    """A reply in the format asked for, for the first frames (at most 3), with the second frame noted."""
+    """A reply in the format asked for, for the first frames (at most 3): yes, then the flaw, then none."""
     lines = [f"{number}: yes" for number in range(1, min(count, 3) + 1)]
     if count >= 2:
         lines[1] = f"2: {question.flaw_answer} - {question.example_note}"
+    if count >= 3:
+        lines[2] = "3: none"
     return lines
 
 
