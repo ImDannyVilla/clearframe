@@ -59,6 +59,8 @@ Laptop tests use `FakeModel.from_file(Path("vision/samples/answers-4-2.json"))` 
 
 Use the contract's issue types (`road_markings`, `extra_finger`) where they fit, and a short lowercase name for Blake's other reasons, like `out_of_place_object` or `lighting`. `score` counts flaws by type, which is how #16 picks the second check.
 
+**Which takes are whose.** Shots 5 and 6 are Blake's real takes (`5-1`, `5-2`, `6-1`), and their rows come from his own review notes. Shots 3 and 4 are our own Seedance backups, made before his arrived. His review copies (3840 wide, his source footage on the left) never go in `--takes`.
+
 ```csv
 take_id,issue_type,frame_start,frame_end,t_start,t_end,description
 4-1,none,,,,,
@@ -90,7 +92,7 @@ python3 ~/clearframe/app/vision/accuracy.py score \
 - **Set `--max-images`** to the image limit in `--limit-mm-per-prompt` from `docker inspect nemoclaw-vllm`. If it's 1, run only `--modes grid,video`.
 - **Start small:** `--take 4-2 --modes grid --thinking off` takes a few minutes.
 - **Thinking on runs separately**, as `--modes frames,video --thinking on`. Leave grid out: on the GB10, 8 of 9 grid replies with thinking on were cut off at `max_tokens` (8192), and frames with thinking on lost 8 of 12 the same way, at over 5 minutes a take. Raise `--max-tokens` before trusting a thinking-on score.
-- **Read the notes, not just the table.** In the first run on Blake's Shot 4 samples, grid's one "catch" on 4-2 was Qwen answering `no` because it saw no arrow, which the question says to answer `yes`.
+- **Read the notes, not just the table.** In the first run, on our own Shot 4 backup samples, grid's one "catch" on 4-2 was Qwen answering `no` because it saw no arrow, which the question says to answer `yes`.
 - **Dry run on a laptop**, no model: add `--fake vision/samples/answers-4-2.json` and point `--takes` at any folder of clips named like `4-2.mp4`.
 
 `score` prints the answer-key counts by type and one row per setup: catches out of planted flaws, catches from the sparse pass alone, false notes on clean takes, notes off the flaw on flawed takes, overlap with the answer key's frames (IoU) and how far the start is off, seconds per take, unparsed replies and errors. Post the table on #6 with the decision.

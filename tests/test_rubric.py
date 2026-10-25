@@ -18,8 +18,8 @@ from worker import flicker  # noqa: E402
 
 CONTRACT = (ROOT / "contracts" / "README.md").read_text(encoding="utf-8")
 
-# Mean brightness (0-255) of every frame of Blake's Shot 3 flicker clip, from the
-# worker's brightness.json on the GB10. It dims three times, for 16, 6 and 15 frames.
+# Mean brightness (0-255) of every frame of our Shot 3 flicker clip (a Seedance
+# backup, not Blake's), from the worker's brightness.json on the GB10. It dims three times, for 16, 6 and 15 frames.
 SHOT_3_FLICKER = [
     97.3, 98.6, 99.0, 99.4, 99.4, 99.8, 99.9, 100.3, 100.3, 100.7, 100.7, 101.2,
     101.2, 101.4, 101.3, 101.7, 101.6, 101.7, 101.5, 101.8, 101.7, 101.9, 101.8, 102.0,
