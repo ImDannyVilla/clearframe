@@ -57,9 +57,9 @@ Laptop tests use `FakeModel.from_file(Path("vision/samples/answers-4-2.json"))` 
 
 `answer_key.csv` has one row per flaw. Give frames (`frame_start`, `frame_end`) or seconds (`t_start`, `t_end`), whichever is easier while watching. A take you watched and found clean gets one row with `issue_type` set to `none`, so the scorer knows it was checked. Takes with no row aren't scored.
 
-Use the contract's issue types (`road_markings`, `extra_finger`) where they fit, and a short lowercase name for Blake's other reasons, like `out_of_place_object` or `lighting`. `score` counts flaws by type, which is how #16 picks the second check.
+Use the contract's issue types (`road_markings`, `extra_finger`) where they fit, and a short lowercase name for Morgan's other reasons, like `out_of_place_object` or `lighting`. `score` counts flaws by type, which is how #16 picks the second check.
 
-**Which takes are whose.** Shots 5 and 6 are Blake's real takes (`5-1`, `5-2`, `6-1`), and their rows come from his own review notes. Shots 3 and 4 are our own Seedance backups, made before his arrived. His review copies (3840 wide, his source footage on the left) never go in `--takes`.
+**Which takes are whose.** Shots 5 and 6 are Morgan's real takes (`5-1`, `5-2`, `6-1`), and their rows come from his own review notes. Shots 3 and 4 are our own Seedance backups, made before his arrived. His review copies (3840 wide, his source footage on the left) never go in `--takes`.
 
 ```csv
 take_id,issue_type,frame_start,frame_end,t_start,t_end,description

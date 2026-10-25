@@ -32,7 +32,7 @@ The gates enforce what they can; the rest is on you.
 - **Standard library only** in `worker/`, `agent/` and `evidence/`: the GB10's offline paths have no PyPI.
 - **The contract changes only by pull request**, in the same pull request as its samples and tests, with a teammate's look before it merges.
 - **Never weaken or skip a gate to make your change pass.** If a gate is wrong, fix it in its own commit and say why.
-- **Blake's clips are non-Honda test assets** made for this demo. Never suggest an RPA client is involved.
+- **Morgan's clips are test assets** made for this demo. Never suggest a real brand is involved.
 
 ## Definition of done
 

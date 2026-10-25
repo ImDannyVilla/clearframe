@@ -1,7 +1,7 @@
 take_id,issue_type,frame_start,frame_end,t_start,t_end,description
 4-2,road_markings,48,64,,,right-lane arrow hooks back toward the camera and the left-lane arrow points sideways (our Seedance backup; contract sample result-4-2)
 4-2r1,none,,,,,
-5-1,road_markings,76,119,,,lane lines and crosswalk stripes skew across the road (Blake at 00:00:04:06; frame 102)
-5-1,road_surface,0,119,,,road too glossy (Blake at 00:00:03:10; frame 82)
-5-2,unnatural_object,60,119,,,pink bougainvillea in the corner building's window looks unnatural (Blake at 00:00:03:06; frame 78)
+5-1,road_markings,76,119,,,lane lines and crosswalk stripes skew across the road (Morgan at 00:00:04:06; frame 102)
+5-1,road_surface,0,119,,,road too glossy (Morgan at 00:00:03:10; frame 82)
+5-2,unnatural_object,60,119,,,pink bougainvillea in the corner building's window looks unnatural (Morgan at 00:00:03:06; frame 78)
 6-1,none,,,,,
