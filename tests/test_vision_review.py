@@ -75,6 +75,12 @@ class ParseAnswersTest(unittest.TestCase):
         text = ". no - there is no car lane visible.\n. yes"
         self.assertEqual(review.parse_answers(text, 2), [("no", "there is no car lane visible."), ("yes", "")])
 
+    def test_none_is_an_answer(self):
+        self.assertEqual(
+            review.parse_answers("1: none\n2: no - wrong way\n3: None.", 3),
+            [("none", ""), ("no", "wrong way"), ("none", "")],
+        )
+
     def test_answers_without_numbers_must_cover_every_frame(self):
         self.assertIsNone(review.parse_answers(". no - wrong way", 2))
         self.assertIsNone(review.parse_answers("1: yes\n. no - wrong way", 2))
@@ -84,7 +90,8 @@ class PromptTest(unittest.TestCase):
     def test_the_prompt_shows_a_reply_in_the_format_asked(self):
         _, ask = review._prompt(review.QUESTIONS["road_markings"], "video", 16, cropped=False)
         self.assertIn("1 to 16", ask)
-        self.assertTrue(ask.endswith("1: yes\n2: no - the arrow points back toward the camera\n3: yes"))
+        self.assertIn("answer none for that frame", ask)
+        self.assertTrue(ask.endswith("1: yes\n2: no - the arrow points back toward the camera\n3: none"))
 
     def test_a_one_frame_example_has_no_flaw_line(self):
         _, ask = review._prompt(review.QUESTIONS["extra_finger"], "frames", 1, cropped=False)
@@ -221,6 +228,15 @@ class ScriptedModel:
         return Reply("\n".join(f"{n}: {answer}" for n in range(1, len(request.frames) + 1)), 0.0)
 
 
+class NothingVisibleModel:
+    """Answers none for every frame, as for a take with no arrows in the lane."""
+
+    name = "nothing-visible"
+
+    def ask(self, request: Request, sampling: Sampling) -> Reply:
+        return Reply("\n".join(f"{n}: none" for n in range(1, len(request.frames) + 1)), 0.0)
+
+
 class GarbageModel:
     name = "garbage"
 
@@ -245,6 +261,11 @@ class DownModel:
 class ReviewTakeTest(unittest.TestCase):
     def review(self, model, settings=None, checks=("exposure_flicker", "road_markings"), flagged=()):
         return review.review_take("4-2", FRAMES, 120, 24, checks, model, settings or review.Settings(), flagged)
+
+    def test_none_is_never_a_note(self):
+        result = self.review(NothingVisibleModel())
+        checked = result.checks["road_markings"]
+        self.assertEqual((checked.state, checked.unparsed, result.candidates), ("done", 0, []))
 
     def test_the_sample_take_gives_one_dense_note_in_the_contract_shape(self):
         sample = json.loads(SAMPLE_RESULT.read_text(encoding="utf-8"))
