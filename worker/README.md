@@ -9,6 +9,18 @@ The host review worker (Jason, #5): takes in from `~/clearframe-input/`, every f
 | `media.py` | ffprobe, the per-frame brightness series, frame extraction and road crops |
 | `review.py` | The bridge to Danny's reviewer (`vision.review.review_take`) and which model it uses |
 | `takes.py` | Take IDs, `shot_list.csv` and `generation_log.csv` |
+| `preflight.py` | Checks the setup before a run: tools, rubric, input files, every take, `results/`, the model server and no internet |
+| `report.py` | The findings as a Markdown table for #23, scored against `vision/answer_key.csv`, with timecodes |
+
+## The shot 5 and 6 run on the GB10 (#23)
+
+1. **Stage Morgan's takes** (Danny's commands on #23): `rsync -a --ignore-existing --exclude '._*' /media/$USER/SanDisk/clearframe-input/ ~/clearframe-input/`, then `python3 ~/clearframe-input/staging/append_rows.py --dry-run`, then again without `--dry-run`. Swap in Morgan's prompts if they've arrived. Never copy the review copies (the staging folder of 3840-wide side-by-sides with Morgan's notes) into `takes/` or `renders/`.
+2. **Reattach the model server**, in case NemoClaw recreated it: `docker network connect clearframe-net nemoclaw-vllm` (an "already exists" error is fine).
+3. **Preflight**, in the worker's container: the cheat sheet's worker `docker run` with `--rm` and `python /app/worker/preflight.py` in place of `main.py`. Every line should be PASS; fix any FAIL first. It covers smoke test 6: the model answers over `clearframe-net`, and the internet doesn't.
+4. **Start the worker** (the cheat sheet's `docker run`), then copy the takes in: `cp ~/clearframe-input/takes/{5-1,5-2,6-1}.mp4 ~/clearframe-input/renders/`.
+5. **Report**, once `docker logs worker` shows all three final: `python3 ~/clearframe/app/worker/report.py --results ~/clearframe/results --shots 5,6`, and paste the output on #23.
+
+Expected: no flicker on any take (peaks about 6.3 against 8.0), a `road_markings` note on 5-1 around frames 76-119, and 6-1 clean. 5-1's `road_surface` and 5-2's `unnatural_object` show as "not checked" until #16 adds a second check.
 
 ## Run it
 
