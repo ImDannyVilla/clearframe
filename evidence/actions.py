@@ -1,4 +1,4 @@
-"""The evidence page's bridge to the contract's four actions (#10). Standard library only.
+"""The evidence page's bridge to the contract's four actions (#10, `agent/approval.py`). Standard library only.
 
 The page never writes SQLite or `results/` itself. Every write is one of these
 four calls, made with exactly the contract's fields ("Approval and the queue
@@ -11,16 +11,17 @@ file" -> "The four actions"):
 | accept_as_is         | take_id, approver                                       |
 | approve_regeneration | take_id, prompt_version, prompt_hash, approver          |
 
-#10 provides them as functions of those names in `agent.actions`, called with
-keyword arguments. An action that refuses raises an exception whose message is
-the reason; the page shows that message. Anything else counts as done.
-
-Until `agent.actions` exists, every action is refused with a fixed message, so
-the page can be used read-only.
+`approval_actions()` calls Gael's functions in `agent.approval`. Each opens its
+own `approval.Store` on the database, passes the rubric (so confirming a note
+runs prompt-fix, and approve checks `approvers`) and, for approve, the queue
+folder. A refusal (`approval.ApprovalRefused`) reaches the page as its reason;
+#10 has already logged it as `approval_refused`.
 """
 from __future__ import annotations
 
-import importlib
+import sys
+import traceback
+from pathlib import Path
 from typing import Protocol
 
 FIELDS = {
@@ -29,7 +30,8 @@ FIELDS = {
     "accept_as_is": ("take_id", "approver"),
     "approve_regeneration": ("take_id", "prompt_version", "prompt_hash", "approver"),
 }
-NOT_AVAILABLE = "approval actions aren't installed yet (#10)"
+NOT_AVAILABLE = "approval actions aren't installed (agent/approval.py, #10)"
+FAILED = "the action failed; see the evidence page's log"
 
 
 class Refused(Exception):
@@ -40,22 +42,41 @@ class Actions(Protocol):
     def __call__(self, action: str, **fields) -> None: ...
 
 
-def module_actions(module_name: str = "agent.actions") -> Actions:
-    """Call the four functions in `agent.actions`; refuse all four if it isn't there yet."""
+def check_fields(action: str, fields: dict) -> None:
+    if action not in FIELDS or tuple(sorted(fields)) != tuple(sorted(FIELDS[action])):
+        raise Refused(f"not a contract action: {action}")
+
+
+def approval_actions(db_path: Path, rubric_path: Path, queue_dir: Path) -> Actions:
+    """The four actions, done by `agent.approval` on the page's database."""
 
     def call(action: str, **fields) -> None:
-        if action not in FIELDS or tuple(sorted(fields)) != tuple(sorted(FIELDS[action])):
-            raise Refused(f"not a contract action: {action}")
+        check_fields(action, fields)
         try:
-            module = importlib.import_module(module_name)
+            from agent import approval
+            from rubric import rubric as rubric_loader
         except ImportError:
             raise Refused(NOT_AVAILABLE) from None
-        function = getattr(module, action, None)
-        if not callable(function):
-            raise Refused(NOT_AVAILABLE)
+        policy = rubric_loader.load(rubric_path)
+        store = approval.Store(db_path)
         try:
-            function(**fields)
-        except Exception as error:  # noqa: BLE001 - every refusal reaches the page as its reason
-            raise Refused(str(error) or type(error).__name__) from None
+            if action == "confirm_note":
+                approval.confirm_note(store, fields["issue_id"], fields["approver"], rubric=policy)
+            elif action == "dismiss_note":
+                approval.dismiss_note(store, fields["issue_id"], fields["approver"], rubric=policy)
+            elif action == "accept_as_is":
+                approval.accept_as_is(store, fields["take_id"], fields["approver"])
+            else:
+                approval.approve_regeneration(
+                    store, fields["take_id"], int(fields["prompt_version"]), fields["prompt_hash"],
+                    fields["approver"], queue_dir, policy,
+                )
+        except approval.ApprovalRefused as refusal:
+            raise Refused(str(refusal) or "refused") from None
+        except Exception:  # noqa: BLE001 - shown as a fixed message; the details go to the log
+            traceback.print_exc(file=sys.stderr)
+            raise Refused(FAILED) from None
+        finally:
+            store.close()
 
     return call

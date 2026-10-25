@@ -64,7 +64,9 @@ def tree_digest(folder: Path) -> str:
     return digest.hexdigest()
 
 
-class EvidencePageTest(unittest.TestCase):
+class EvidenceCase(unittest.TestCase):
+    """A running page on a database built by the #7 ingest; actions go to a recorder."""
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="clearframe-evidence-"))
         self.results = self.tmp / "results"
@@ -130,6 +132,11 @@ class EvidencePageTest(unittest.TestCase):
             db.recompute_status(conn, "4-2", "Creative director")
         conn.close()
 
+    def post(self, action, **fields):
+        return self.request("POST", f"/action/{action}", {"token": "test-token", **fields})
+
+
+class EvidencePageTest(EvidenceCase):
     # The pages ----------------------------------------------------------------------------
 
     def test_shot_page_lists_every_take_with_its_status(self):
@@ -198,9 +205,6 @@ class EvidencePageTest(unittest.TestCase):
 
     # The four actions ---------------------------------------------------------------------
 
-    def post(self, action, **fields):
-        return self.request("POST", f"/action/{action}", {"token": "test-token", **fields})
-
     def test_confirm_sends_exactly_the_contract_fields(self):
         status, headers, _ = self.post("confirm_note", issue_id="4-2-1", approver="Creative director",
                                        extra="ignored")
@@ -254,18 +258,77 @@ class EvidencePageTest(unittest.TestCase):
             self.assertEqual(self.request("GET", path)[0], 404, path)
 
 
-class ActionsBridgeTest(unittest.TestCase):
-    def test_without_agent_actions_every_action_is_refused(self):
-        call = actions.module_actions("agent.no_such_module")
-        with self.assertRaises(actions.Refused) as caught:
-            call("confirm_note", issue_id="4-2-1", approver="Creative director")
-        self.assertEqual(str(caught.exception), actions.NOT_AVAILABLE)
+class RealActionsTest(EvidenceCase):
+    """The page driving #10's real `agent.approval` on the #7 ingest's database."""
 
+    def setUp(self):
+        super().setUp()
+        self.queue = self.tmp / "approved_generation_queue"
+        self.config.actions = actions.approval_actions(self.db_path, ROOT / "rubric" / "rubric.yaml", self.queue)
+
+    def seed_generation(self):
+        """#10 reads tool and model from its `generation` table; seed it as an ingest would."""
+        from agent import approval
+        store = approval.Store(self.db_path)
+        store.conn.execute("INSERT INTO generation (take_id, tool, model, seed) VALUES (?, ?, ?, ?)",
+                           ("4-2", SAMPLE["generation"]["tool"], SAMPLE["generation"]["model"],
+                            json.dumps(SAMPLE["generation"]["seed"])))
+        store.close()
+
+    def test_confirm_on_the_page_flags_the_take_and_prompt_fix_adds_version_2(self):
+        status, headers, _ = self.post("confirm_note", issue_id="4-2-1", approver="Creative director")
+        self.assertEqual((status, headers["Location"].split("?")[0]), (303, "/take/4-2"))
+        text = self.get(headers["Location"])
+        self.assertIn("confirm note: done", text)
+        self.assertIn("status-flagged", text)
+        self.assertIn("Version 1 to version 2 (fixes: road markings)", text)
+        self.assertIn(V2_HASH, text)
+        self.assertIn("note_confirmed", text)
+
+    def test_approve_on_the_page_writes_the_contract_queue_file(self):
+        self.seed_generation()
+        self.post("confirm_note", issue_id="4-2-1", approver="Creative director")
+        status, headers, _ = self.post("approve_regeneration", take_id="4-2", prompt_version="2",
+                                       prompt_hash=V2_HASH, approver="Creative director")
+        self.assertIn("done=", headers["Location"])
+        queued = json.loads((self.queue / "4-2-v2.json").read_text(encoding="utf-8"))
+        expected = json.loads((ROOT / "contracts" / "samples" / "queue-4-2-v2.json").read_text(encoding="utf-8"))
+        for key in ("schema", "request_id", "parent_take_id", "next_take_id", "shot", "prompt_version",
+                    "prompt_hash", "prompt", "fixes", "generation"):
+            self.assertEqual(queued[key], expected[key], key)
+        text = self.get("/take/4-2")
+        self.assertIn("approved for regeneration by Creative director", text)
+        self.assertIn("queued as 4-2-v2.json, returns as 4-2r1", text)
+
+    def test_a_stale_hash_is_refused_with_its_reason(self):
+        self.seed_generation()
+        self.post("confirm_note", issue_id="4-2-1", approver="Creative director")
+        stale = "sha256:" + "0" * 64
+        _, headers, _ = self.post("approve_regeneration", take_id="4-2", prompt_version="2",
+                                  prompt_hash=stale, approver="Creative director")
+        text = self.get(headers["Location"])
+        self.assertIn("Refused:", text)
+        self.assertIn("approval_refused", text)
+        self.assertFalse((self.queue / "4-2-v2.json").exists())
+
+    def test_an_unlisted_approver_is_refused(self):
+        self.seed_generation()
+        self.post("confirm_note", issue_id="4-2-1", approver="Creative director")
+        _, headers, _ = self.post("approve_regeneration", take_id="4-2", prompt_version="2",
+                                  prompt_hash=V2_HASH, approver="Somebody else")
+        self.assertIn("Refused:", self.get(headers["Location"]))
+        self.assertFalse((self.queue / "4-2-v2.json").exists())
+
+
+class ActionsBridgeTest(unittest.TestCase):
     def test_fields_must_be_exactly_the_contract_fields(self):
-        call = actions.module_actions("agent.no_such_module")
-        with self.assertRaises(actions.Refused) as caught:
-            call("confirm_note", issue_id="4-2-1")
-        self.assertIn("not a contract action", str(caught.exception))
+        call = actions.approval_actions(Path("unused.db"), ROOT / "rubric" / "rubric.yaml", Path("unused"))
+        for action, fields in (("confirm_note", {"issue_id": "4-2-1"}),
+                               ("accept_as_is", {"take_id": "4-2", "approver": "x", "prompt_hash": "y"}),
+                               ("delete_take", {"take_id": "4-2"})):
+            with self.assertRaises(actions.Refused) as caught:
+                call(action, **fields)
+            self.assertIn("not a contract action", str(caught.exception))
 
     def test_the_four_actions_match_the_contract(self):
         contract = (ROOT / "contracts" / "README.md").read_text(encoding="utf-8")

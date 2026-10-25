@@ -45,15 +45,23 @@ DEFAULT_RESULTS = Path("/sandbox/clearframe/host/results")
 MAX_FORM_BYTES = 16 * 1024
 
 
+DEFAULT_QUEUE = Path("/sandbox/clearframe/approved_generation_queue")
+
+
 @dataclass
 class Config:
     db_path: Path = db.DEFAULT_DB
     results_dir: Path = DEFAULT_RESULTS
     rubric_path: Path = ROOT / "rubric" / "rubric.yaml"
+    queue_dir: Path = DEFAULT_QUEUE
     host: str = "127.0.0.1"
     port: int = 8090
-    actions: actions_module.Actions = field(default_factory=actions_module.module_actions)
+    actions: actions_module.Actions | None = None  # None: #10's agent.approval on db_path
     token: str = field(default_factory=lambda: secrets.token_urlsafe(24))
+
+    def __post_init__(self) -> None:
+        if self.actions is None:
+            self.actions = actions_module.approval_actions(self.db_path, self.rubric_path, self.queue_dir)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -62,6 +70,7 @@ class Config:
             db_path=Path(env("CLEARFRAME_DB", str(db.DEFAULT_DB))),
             results_dir=Path(env("CLEARFRAME_RESULTS", str(DEFAULT_RESULTS))),
             rubric_path=Path(env("CLEARFRAME_RUBRIC", str(ROOT / "rubric" / "rubric.yaml"))),
+            queue_dir=Path(env("CLEARFRAME_QUEUE", str(DEFAULT_QUEUE))),
             host=env("EVIDENCE_HOST", "127.0.0.1"),
             port=int(env("EVIDENCE_PORT", "8090")),
         )
@@ -525,6 +534,7 @@ def make_handler(config: Config):
                 except ValueError:
                     return self.back(take_id, refused="prompt_version is not a number")
             try:
+                assert config.actions is not None
                 config.actions(action, **fields)
             except actions_module.Refused as refusal:
                 return self.back(take_id, refused=str(refusal))

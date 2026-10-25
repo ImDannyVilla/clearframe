@@ -20,6 +20,7 @@ Then on the host: `openshell forward start --background 8090 clearframe`, and op
 | `CLEARFRAME_DB` | `/sandbox/clearframe/state/clearframe.db` | Opened read-only |
 | `CLEARFRAME_RESULTS` | `/sandbox/clearframe/host/results` | Evidence frames and brightness series |
 | `CLEARFRAME_RUBRIC` | `rubric/rubric.yaml` | `approvers` and the flicker threshold |
+| `CLEARFRAME_QUEUE` | `/sandbox/clearframe/approved_generation_queue` | Where #10 writes approved queue files |
 | `EVIDENCE_PORT` | `8090` | The contract's port |
 
 ## What `/take/<take_id>` shows
@@ -33,7 +34,9 @@ Then on the host: `openshell forward start --background 8090 clearframe`, and op
 
 ## The four actions (#10)
 
-The page calls `agent.actions.confirm_note(issue_id=, approver=)`, `dismiss_note(issue_id=, approver=)`, `accept_as_is(take_id=, approver=)` and `approve_regeneration(take_id=, prompt_version=, prompt_hash=, approver=)`, with keyword arguments only. An action refuses by raising an exception; its message is shown on the page as the reason. Until `agent/actions.py` exists, every button shows "approval actions aren't installed yet (#10)" and the page is read-only.
+`actions.py` takes exactly the contract's fields for each button and calls Gael's `agent/approval.py`: `confirm_note`, `dismiss_note`, `accept_as_is` and `approve_regeneration`. Each call opens its own `approval.Store` on the database and passes the rubric, so confirming a note runs prompt-fix and approve checks `approvers`. It also passes the queue folder (`CLEARFRAME_QUEUE`, default `/sandbox/clearframe/approved_generation_queue`). An `ApprovalRefused` comes back to the page as `Refused: <reason>`; #10 has already logged it as `approval_refused`. Any other error shows a fixed message, and the traceback goes to the page's log.
+
+**Approve needs the `generation` table.** #10 reads the queue file's tool, model and seed from its own `generation` table, which the #7 ingest doesn't fill yet. Until it does, Approve is refused with "take … has no generation info". See the PR for the fix.
 
 ## Safety
 
