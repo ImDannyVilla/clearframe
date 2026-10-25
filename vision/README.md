@@ -81,14 +81,16 @@ docker run --rm --network clearframe-net \
   -v ~/ffmpeg-7.0.2-arm64-static:/opt/ffmpeg:ro \
   python:3.12-slim python /app/vision/accuracy.py run \
     --takes /input/takes --shot 4 --check road_markings --out /out \
-    --modes grid,frames,video --thinking off,on --runs 3 --max-images 8
+    --modes grid,frames,video --thinking off --runs 3 --max-images 8
 
 python3 ~/clearframe/app/vision/accuracy.py score \
   --answer-key ~/clearframe/app/vision/answer_key.csv ~/clearframe-input/accuracy
 ```
 
 - **Set `--max-images`** to the image limit in `--limit-mm-per-prompt` from `docker inspect nemoclaw-vllm`. If it's 1, run only `--modes grid,video`.
-- **Start small:** `--take 4-2 --modes grid --thinking off` takes a few minutes; the full set is 6 setups × 6 takes.
+- **Start small:** `--take 4-2 --modes grid --thinking off` takes a few minutes.
+- **Thinking on runs separately**, as `--modes frames,video --thinking on`. Leave grid out: on the GB10, 8 of 9 grid replies with thinking on were cut off at `max_tokens` (8192), and frames with thinking on lost 8 of 12 the same way, at over 5 minutes a take. Raise `--max-tokens` before trusting a thinking-on score.
+- **Read the notes, not just the table.** In the first run on Blake's Shot 4 samples, grid's one "catch" on 4-2 was Qwen answering `no` because it saw no arrow, which the question says to answer `yes`.
 - **Dry run on a laptop**, no model: add `--fake vision/samples/answers-4-2.json` and point `--takes` at any folder of clips named like `4-2.mp4`.
 
 `score` prints the answer-key counts by type and one row per setup: catches out of planted flaws, catches from the sparse pass alone, false notes on clean takes, notes off the flaw on flawed takes, overlap with the answer key's frames (IoU) and how far the start is off, seconds per take, unparsed replies and errors. Post the table on #6 with the decision.
