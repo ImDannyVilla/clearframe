@@ -306,4 +306,4 @@ Version 1's hash is `sha256:ee4aa7f4a4c28994d974159b541e8f8b372c29b03ade2ad7098b
 - `next_take_id` numbers retakes per original take: 4-2's first retake is `4-2r1`. If `4-2r1` is approved in turn, its retake is `4-2r2`, with parent `4-2r1`.
 - `generation` repeats the parent's tool and model, and its seed only when the tool takes one. Seedance 2.0 on fal doesn't take a seed, so there the queue file's seed is null and the retake gets a new one.
 - The returned render must be named `next_take_id` and carry the queued prompt in `generation_log.csv`. When its result arrives, code compares its prompt hash with the approval's and logs `retake_linked` with the match. Either way, it is reviewed as a new take.
-- ClearFrame never generates the retake. In the demo, a fixed take made in prep, or one of Blake's good renders introduced as such, plays the returned render.
+- ClearFrame never generates the retake. In the demo, a fixed take made in prep, or one of Morgan's good renders introduced as such, plays the returned render.
